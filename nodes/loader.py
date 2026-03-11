@@ -292,6 +292,22 @@ def load_engine(
                         including the masked path.
     'sage_attention'  — monkey-patch every Attention layer with sageattn.
     """
+    device_str, _ = resolve_device(device)
+
+    # Guard unsupported attention modes on non-CUDA devices
+    if device_str != "cuda":
+        if attention == "flash_attention":
+            logger.warning(
+                f"flash_attention is only supported on CUDA. "
+                f"Falling back to sdpa on {device_str}."
+            )
+            attention = "sdpa"
+        if attention == "sage_attention":
+            logger.warning(
+                f"sage_attention is only supported on CUDA. "
+                f"Falling back to sdpa on {device_str}."
+            )
+            attention = "sdpa"
     try:
         from fish_speech.models.dac.inference import load_model as load_decoder_model
         from fish_speech.models.text2semantic.inference import launch_thread_safe_queue
@@ -304,7 +320,6 @@ def load_engine(
         ) from e
 
     model_path = resolve_model_path(model_name)
-    device_str, _ = resolve_device(device)
     dtype = resolve_precision(precision, model_name, device_str)
 
     logger.info(f"Loading Fish S2 LLaMA from: {model_path}")
