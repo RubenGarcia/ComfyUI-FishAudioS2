@@ -113,7 +113,7 @@ Models are auto-downloaded from HuggingFace on first use:
 
 ```bash
 cd ComfyUI/custom_nodes
-git clone https://github.com/YOUR_USERNAME/ComfyUI-FishAudioS2.git
+git clone https://github.com/saganaki22/ComfyUI-FishAudioS2.git
 cd ComfyUI-FishAudioS2
 pip install -r requirements.txt
 ```
