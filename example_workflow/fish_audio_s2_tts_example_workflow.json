@@ -1,8 +1,8 @@
 {
   "id": "7194deb1-82f5-4127-8595-f2a56c528770",
   "revision": 0,
-  "last_node_id": 40,
-  "last_link_id": 38,
+  "last_node_id": 41,
+  "last_link_id": 41,
   "nodes": [
     {
       "id": 7,
@@ -16,7 +16,7 @@
         102
       ],
       "flags": {},
-      "order": 10,
+      "order": 11,
       "mode": 0,
       "inputs": [
         {
@@ -89,6 +89,251 @@
       ]
     },
     {
+      "id": 39,
+      "type": "MarkdownNote",
+      "pos": [
+        -1289.9614124769573,
+        1828.0698536969624
+      ],
+      "size": [
+        354.6954237219629,
+        88
+      ],
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "## ⬆️ True (STT Whisper) / False (custom TXT)"
+      ],
+      "color": "#c09430",
+      "bgcolor": "rgba(24,24,27,.9)"
+    },
+    {
+      "id": 22,
+      "type": "MarkdownNote",
+      "pos": [
+        -126.62949137478357,
+        576.1630697439277
+      ],
+      "size": [
+        546.1582812039053,
+        834.4829895379138
+      ],
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "# Fish Audio S2 TTS\n\n## Auto-Download\n\n**Models auto-download on first run** - no manual setup needed!\n\n| Model | VRAM | Size |\n|-------|------|------|\n| s2-pro (bf16) | ~24GB | ~10GB |\n| s2-pro-w4a16 (GPTQ) | ~12GB | ~5GB |\n\n---\n\n## Manual Download\n\n| File | Size | Link |\n|------|------|------|\n| s2-pro (Full) | ~10GB | [Download](https://huggingface.co/fishaudio/s2-pro) |\n| s2-pro-w4a16 (GPTQ) | ~5GB | [Download](https://huggingface.co/baicai1145/s2-pro-w4a16) |\n\nPlace in:\n```\nComfyUI/models/FishAudioS2/\n├── s2-pro/\n│   ├── config.json\n│   ├── model.safetensors\n│   └── ...\n└── s2-pro-w4a16/\n    ├── config.json\n    ├── model.safetensors\n    └── ...\n```\n\n---\n\n## Windows GPTQ Install\n\nGPTQ models require prebuilt wheels (bundled source cannot compile):\n\n```cmd\npython -m pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu128/\n```\n\n---\n\n## Common tags (15,000+ unique tags supported):\n\n## [pause] [emphasis] [laughing] [inhale] [chuckle] [tsk] [singing] [excited] [laughing tone] [interrupting] [chuckling] [excited tone] [volume up] [echo] [angry] [low volume] [sigh] [low voice] [whisper] [screaming] [shouting] [loud] [surprised] [short pause] [exhale] [delight] [panting] [audience laughter] [with strong accent] [volume down] [clearing throat] [sad] [moaning] [shocked]\n\n---\n\n## Links\n\n- Original [fish-speech](https://github.com/fishaudio/fish-speech)\n- Models [s2-pro](https://huggingface.co/fishaudio/s2-pro) / [s2-pro-w4a16](https://huggingface.co/baicai1145/s2-pro-w4a16)\n- Issues [Report Bug](https://github.com/Saganaki22/ComfyUI-FishAudioS2/issues)"
+      ],
+      "color": "#c09430",
+      "bgcolor": "rgba(24,24,27,.9)"
+    },
+    {
+      "id": 2,
+      "type": "PreviewAudio",
+      "pos": [
+        -1425.0178348634063,
+        1079.469991859932
+      ],
+      "size": [
+        389.3472371792841,
+        126.87310597423561
+      ],
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 19
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.16.4",
+        "Node name for S&R": "PreviewAudio"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 19,
+      "type": "PreviewAudio",
+      "pos": [
+        -551.2306813622239,
+        1542.9618774733426
+      ],
+      "size": [
+        389.3472371792841,
+        126.87310597423561
+      ],
+      "flags": {},
+      "order": 13,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 39
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.16.4",
+        "Node name for S&R": "PreviewAudio"
+      },
+      "widgets_values": []
+    },
+    {
+      "id": 18,
+      "type": "LoadAudio",
+      "pos": [
+        -547.9653639823974,
+        786.82150091903
+      ],
+      "size": [
+        379.8985321448199,
+        137.18412290060564
+      ],
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            17,
+            38,
+            40
+          ]
+        }
+      ],
+      "title": "Speaker 2",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.16.4",
+        "Node name for S&R": "LoadAudio"
+      },
+      "widgets_values": [
+        "sample-2.mp3",
+        null,
+        null
+      ]
+    },
+    {
+      "id": 17,
+      "type": "LoadAudio",
+      "pos": [
+        -550.1711054567234,
+        602.2716313977381
+      ],
+      "size": [
+        379.8985321448199,
+        137.18412290060564
+      ],
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            16,
+            37,
+            41
+          ]
+        }
+      ],
+      "title": "Speaker 1",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.16.4",
+        "Node name for S&R": "LoadAudio"
+      },
+      "widgets_values": [
+        "sample-1.mp3",
+        null,
+        null
+      ]
+    },
+    {
+      "id": 15,
+      "type": "LoadAudio",
+      "pos": [
+        -979.5454167609595,
+        611.359226272031
+      ],
+      "size": [
+        379.8985321448199,
+        137.18412290060564
+      ],
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "AUDIO",
+          "type": "AUDIO",
+          "links": [
+            14,
+            25
+          ]
+        }
+      ],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.16.4",
+        "Node name for S&R": "LoadAudio"
+      },
+      "widgets_values": [
+        "sample-2.mp3",
+        null,
+        null
+      ]
+    },
+    {
+      "id": 16,
+      "type": "PreviewAudio",
+      "pos": [
+        -983.3921914261992,
+        1504.496082302565
+      ],
+      "size": [
+        389.3472371792841,
+        126.87310597423561
+      ],
+      "flags": {},
+      "order": 17,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "link": 15
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.16.4",
+        "Node name for S&R": "PreviewAudio"
+      },
+      "widgets_values": []
+    },
+    {
       "id": 8,
       "type": "ShowText|pysssss",
       "pos": [
@@ -100,7 +345,7 @@
         228.36269105312203
       ],
       "flags": {},
-      "order": 13,
+      "order": 14,
       "mode": 0,
       "inputs": [
         {
@@ -140,7 +385,7 @@
         167.6045678068499
       ],
       "flags": {},
-      "order": 1,
+      "order": 6,
       "mode": 0,
       "inputs": [
         {
@@ -166,8 +411,31 @@
         "Node name for S&R": "Text Box line spot"
       },
       "widgets_values": [
-        ""
+        " It's not about what we have or what we achieve, but about how we experience each moment. This is the most profound secret of life."
       ]
+    },
+    {
+      "id": 38,
+      "type": "MarkdownNote",
+      "pos": [
+        -1833.1872128110867,
+        1436.0738233624877
+      ],
+      "size": [
+        220.93774647025316,
+        222.29098359964541
+      ],
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [],
+      "properties": {},
+      "widgets_values": [
+        "## If you want to use auto transcription for source audio set toggle to true ➡️\n \n## if not toggle false and paste your reference text in the text field below "
+      ],
+      "color": "#c09430",
+      "bgcolor": "rgba(24,24,27,.9)"
     },
     {
       "id": 34,
@@ -222,50 +490,87 @@
       ]
     },
     {
-      "id": 38,
-      "type": "MarkdownNote",
+      "id": 35,
+      "type": "PrimitiveBoolean",
       "pos": [
-        -1826.558303653436,
-        1355.974321743406
+        -1293.281160188799,
+        1722.4874531158168
       ],
       "size": [
-        220.93774647025316,
-        222.29098359964541
+        311.2046875,
+        58
       ],
       "flags": {},
-      "order": 2,
+      "order": 8,
       "mode": 0,
       "inputs": [],
-      "outputs": [],
-      "properties": {},
-      "widgets_values": [
-        "## If you want to use auto transcription for source audio unbypass this group and set toggle to true ➡️\n \n## if not keep group bypassed, toggle false and paste your reference text in the text field below "
+      "outputs": [
+        {
+          "name": "BOOLEAN",
+          "type": "BOOLEAN",
+          "links": [
+            30
+          ]
+        }
       ],
-      "color": "#c09430",
-      "bgcolor": "rgba(24,24,27,.9)"
+      "title": "True (STT Whisper) / False (custom TXT)",
+      "properties": {
+        "cnr_id": "comfy-core",
+        "ver": "0.16.4",
+        "Node name for S&R": "PrimitiveBoolean"
+      },
+      "widgets_values": [
+        true
+      ]
     },
     {
-      "id": 39,
-      "type": "MarkdownNote",
+      "id": 20,
+      "type": "FishS2TTS",
       "pos": [
-        -1289.9614124769573,
-        1828.0698536969624
+        -1428.1616503783164,
+        610.6475530879222
       ],
       "size": [
-        354.6954237219629,
-        88
+        400,
+        448
       ],
       "flags": {},
-      "order": 3,
+      "order": 9,
       "mode": 0,
       "inputs": [],
-      "outputs": [],
-      "properties": {},
-      "widgets_values": [
-        "## ⬆️ True (STT Whisper) / False (custom TXT)"
+      "outputs": [
+        {
+          "name": "audio",
+          "type": "AUDIO",
+          "links": [
+            19
+          ]
+        }
       ],
-      "color": "#c09430",
-      "bgcolor": "rgba(24,24,27,.9)"
+      "properties": {
+        "cnr_id": "ComfyUI-fish-audio-s2",
+        "ver": "b61bec15d943c1c84909b1bc93b77a862986745f",
+        "Node name for S&R": "FishS2TTS",
+        "aux_id": "Saganaki22/ComfyUI-FishAudioS2"
+      },
+      "widgets_values": [
+        "s2-pro",
+        "Hello! [excited] This is Fish Audio S2.",
+        "auto",
+        "auto",
+        "bfloat16",
+        "auto",
+        0,
+        200,
+        0.8,
+        0.8,
+        1.1,
+        42,
+        "fixed",
+        true,
+        true,
+        false
+      ]
     },
     {
       "id": 14,
@@ -307,9 +612,10 @@
         }
       ],
       "properties": {
-        "aux_id": "Saganaki22/ComfyUI-FishAudioS2",
+        "cnr_id": "ComfyUI-fish-audio-s2",
         "ver": "b61bec15d943c1c84909b1bc93b77a862986745f",
-        "Node name for S&R": "FishS2VoiceCloneTTS"
+        "Node name for S&R": "FishS2VoiceCloneTTS",
+        "aux_id": "Saganaki22/ComfyUI-FishAudioS2"
       },
       "widgets_values": [
         "s2-pro",
@@ -326,255 +632,13 @@
         42,
         "fixed",
         true,
-        false,
-        "the sun is shining brightly in the clear blue sky. A gentle breeze is blowing and birds are singing sweet melodies. The world is full of beauty and wonder waiting to be explored."
-      ]
-    },
-    {
-      "id": 15,
-      "type": "LoadAudio",
-      "pos": [
-        -979.5454167609595,
-        611.359226272031
-      ],
-      "size": [
-        379.8985321448199,
-        137.18412290060564
-      ],
-      "flags": {},
-      "order": 4,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "AUDIO",
-          "type": "AUDIO",
-          "links": [
-            14,
-            25
-          ]
-        }
-      ],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.16.4",
-        "Node name for S&R": "LoadAudio"
-      },
-      "widgets_values": [
-        "sample-2.mp3",
-        null,
-        null
-      ]
-    },
-    {
-      "id": 35,
-      "type": "PrimitiveBoolean",
-      "pos": [
-        -1290.8505910710826,
-        1724.3104263142393
-      ],
-      "size": [
-        311.2046875,
-        58
-      ],
-      "flags": {},
-      "order": 5,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "BOOLEAN",
-          "type": "BOOLEAN",
-          "links": [
-            30
-          ]
-        }
-      ],
-      "title": "True (STT Whisper) / False (custom TXT)",
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.16.4",
-        "Node name for S&R": "PrimitiveBoolean"
-      },
-      "widgets_values": [
-        true
-      ]
-    },
-    {
-      "id": 22,
-      "type": "MarkdownNote",
-      "pos": [
-        -126.62949137478357,
-        576.1630697439277
-      ],
-      "size": [
-        546.1582812039053,
-        834.4829895379138
-      ],
-      "flags": {},
-      "order": 6,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [],
-      "properties": {},
-      "widgets_values": [
-        "# Fish Audio S2 TTS\n\n## Auto-Download\n\n**Models auto-download on first run** - no manual setup needed!\n\n| Model | VRAM | Size |\n|-------|------|------|\n| s2-pro (bf16) | ~24GB | ~10GB |\n| s2-pro-w4a16 (GPTQ) | ~12GB | ~5GB |\n\n---\n\n## Manual Download\n\n| File | Size | Link |\n|------|------|------|\n| s2-pro (Full) | ~10GB | [Download](https://huggingface.co/fishaudio/s2-pro) |\n| s2-pro-w4a16 (GPTQ) | ~5GB | [Download](https://huggingface.co/baicai1145/s2-pro-w4a16) |\n\nPlace in:\n```\nComfyUI/models/FishAudioS2/\n├── s2-pro/\n│   ├── config.json\n│   ├── model.safetensors\n│   └── ...\n└── s2-pro-w4a16/\n    ├── config.json\n    ├── model.safetensors\n    └── ...\n```\n\n---\n\n## Windows GPTQ Install\n\nGPTQ models require prebuilt wheels (bundled source cannot compile):\n\n```cmd\npython -m pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu128/\n```\n\n---\n\n## Common tags (15,000+ unique tags supported):\n\n## [pause] [emphasis] [laughing] [inhale] [chuckle] [tsk] [singing] [excited] [laughing tone] [interrupting] [chuckling] [excited tone] [volume up] [echo] [angry] [low volume] [sigh] [low voice] [whisper] [screaming] [shouting] [loud] [surprised] [short pause] [exhale] [delight] [panting] [audience laughter] [with strong accent] [volume down] [clearing throat] [sad] [moaning] [shocked]\n\n---\n\n## Links\n\n- Original [fish-speech](https://github.com/fishaudio/fish-speech)\n- Models [s2-pro](https://huggingface.co/fishaudio/s2-pro) / [s2-pro-w4a16](https://huggingface.co/baicai1145/s2-pro-w4a16)\n- Issues [Report Bug](https://github.com/Saganaki22/ComfyUI-FishAudioS2/issues)"
-      ],
-      "color": "#c09430",
-      "bgcolor": "rgba(24,24,27,.9)"
-    },
-    {
-      "id": 2,
-      "type": "PreviewAudio",
-      "pos": [
-        -1425.0178348634063,
-        1079.469991859932
-      ],
-      "size": [
-        389.3472371792841,
-        126.87310597423561
-      ],
-      "flags": {},
-      "order": 11,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "audio",
-          "type": "AUDIO",
-          "link": 19
-        }
-      ],
-      "outputs": [],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.16.4",
-        "Node name for S&R": "PreviewAudio"
-      },
-      "widgets_values": []
-    },
-    {
-      "id": 20,
-      "type": "FishS2TTS",
-      "pos": [
-        -1428.1616503783164,
-        610.6475530879222
-      ],
-      "size": [
-        400,
-        424
-      ],
-      "flags": {},
-      "order": 7,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "audio",
-          "type": "AUDIO",
-          "links": [
-            19
-          ]
-        }
-      ],
-      "properties": {
-        "aux_id": "Saganaki22/ComfyUI-FishAudioS2",
-        "ver": "b61bec15d943c1c84909b1bc93b77a862986745f",
-        "Node name for S&R": "FishS2TTS"
-      },
-      "widgets_values": [
-        "s2-pro",
-        "Hello! [excited] This is Fish Audio S2.",
-        "auto",
-        "auto",
-        "bfloat16",
-        "auto",
-        0,
-        200,
-        0.8,
-        0.8,
-        1.1,
-        42,
-        "fixed",
         true,
-        false
+        false,
+        ""
       ]
     },
     {
-      "id": 17,
-      "type": "LoadAudio",
-      "pos": [
-        -550.1711054567234,
-        602.2716313977381
-      ],
-      "size": [
-        379.8985321448199,
-        137.18412290060564
-      ],
-      "flags": {},
-      "order": 8,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "AUDIO",
-          "type": "AUDIO",
-          "links": [
-            16,
-            37
-          ]
-        }
-      ],
-      "title": "Speaker 1",
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.16.4",
-        "Node name for S&R": "LoadAudio"
-      },
-      "widgets_values": [
-        "sample-1.mp3",
-        null,
-        null
-      ]
-    },
-    {
-      "id": 18,
-      "type": "LoadAudio",
-      "pos": [
-        -547.9653639823974,
-        786.82150091903
-      ],
-      "size": [
-        379.8985321448199,
-        137.18412290060564
-      ],
-      "flags": {},
-      "order": 9,
-      "mode": 0,
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "AUDIO",
-          "type": "AUDIO",
-          "links": [
-            17,
-            38
-          ]
-        }
-      ],
-      "title": "Speaker 2",
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.16.4",
-        "Node name for S&R": "LoadAudio"
-      },
-      "widgets_values": [
-        "sample-2.mp3",
-        null,
-        null
-      ]
-    },
-    {
-      "id": 40,
+      "id": 41,
       "type": "FishS2MultiSpeakerTTS",
       "pos": [
         -558.6896109857566,
@@ -582,10 +646,10 @@
       ],
       "size": [
         400,
-        540
+        564
       ],
       "flags": {},
-      "order": 12,
+      "order": 10,
       "mode": 0,
       "inputs": [
         {
@@ -593,14 +657,14 @@
           "name": "num_speakers.speaker_1_audio",
           "shape": 7,
           "type": "AUDIO",
-          "link": 37
+          "link": 40
         },
         {
           "label": "speaker_2_audio",
           "name": "num_speakers.speaker_2_audio",
           "shape": 7,
           "type": "AUDIO",
-          "link": 38
+          "link": 41
         }
       ],
       "outputs": [
@@ -608,20 +672,20 @@
           "name": "audio",
           "type": "AUDIO",
           "links": [
-            36
+            39
           ]
         }
       ],
       "properties": {
-        "aux_id": "Saganaki22/ComfyUI-FishAudioS2",
-        "ver": "77e0409ff57af316f271cc7e717c559ca4aab62d",
+        "cnr_id": "ComfyUI-fish-audio-s2",
+        "ver": "e85aeca472fbffca7b6806feb6792903780fb15f",
         "Node name for S&R": "FishS2MultiSpeakerTTS"
       },
       "widgets_values": [
         "s2-pro",
         "[speaker_1]: Hello, I'm speaker one.\n[speaker_2]: And I'm speaker two!",
         "auto",
-        "cuda",
+        "auto",
         "auto",
         "auto",
         0,
@@ -629,73 +693,16 @@
         0.8,
         0.8,
         1.1,
-        42,
-        "fixed",
+        699108391,
+        "randomize",
+        true,
         true,
         false,
-        0.4,
+        0.3,
         "2",
         "",
         ""
       ]
-    },
-    {
-      "id": 19,
-      "type": "PreviewAudio",
-      "pos": [
-        -551.2306813622239,
-        1542.9618774733426
-      ],
-      "size": [
-        389.3472371792841,
-        126.87310597423561
-      ],
-      "flags": {},
-      "order": 14,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "audio",
-          "type": "AUDIO",
-          "link": 36
-        }
-      ],
-      "outputs": [],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.16.4",
-        "Node name for S&R": "PreviewAudio"
-      },
-      "widgets_values": []
-    },
-    {
-      "id": 16,
-      "type": "PreviewAudio",
-      "pos": [
-        -983.3921914261992,
-        1504.496082302565
-      ],
-      "size": [
-        389.3472371792841,
-        126.87310597423561
-      ],
-      "flags": {},
-      "order": 17,
-      "mode": 0,
-      "inputs": [
-        {
-          "name": "audio",
-          "type": "AUDIO",
-          "link": 15
-        }
-      ],
-      "outputs": [],
-      "properties": {
-        "cnr_id": "comfy-core",
-        "ver": "0.16.4",
-        "Node name for S&R": "PreviewAudio"
-      },
-      "widgets_values": []
     }
   ],
   "links": [
@@ -796,14 +803,6 @@
       "BOOLEAN"
     ],
     [
-      36,
-      40,
-      0,
-      19,
-      0,
-      "AUDIO"
-    ],
-    [
       37,
       17,
       0,
@@ -816,6 +815,30 @@
       18,
       0,
       40,
+      1,
+      "AUDIO"
+    ],
+    [
+      39,
+      41,
+      0,
+      19,
+      0,
+      "AUDIO"
+    ],
+    [
+      40,
+      18,
+      0,
+      41,
+      0,
+      "AUDIO"
+    ],
+    [
+      41,
+      17,
+      0,
+      41,
       1,
       "AUDIO"
     ]
@@ -878,10 +901,10 @@
   "extra": {
     "workflowRendererVersion": "LG",
     "ds": {
-      "scale": 0.6755952380952852,
+      "scale": 0.3813558991732663,
       "offset": [
-        2041.6447992799392,
-        -312.55171270852753
+        3248.1459404392613,
+        424.852398660367
       ]
     },
     "frontendVersion": "1.39.19",
