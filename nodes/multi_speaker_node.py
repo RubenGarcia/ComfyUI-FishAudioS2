@@ -82,13 +82,65 @@ def _speaker_inputs(count: int) -> list:
 def _convert_speaker_tags(text: str) -> str:
     """Convert user-friendly [speaker_N]: tags to model's <|speaker:N-1|> format."""
     import re
-    
+
     def replace_tag(m):
         n = int(m.group(1))
         colon = m.group(2) or ""
         return f"<|speaker:{n - 1}|>{colon}"
-    
+
     return re.sub(r'\[speaker_(\d+)\](:)?', replace_tag, text)
+
+
+def _parse_dialogue_lines(text: str):
+    """
+    Parse multi-speaker text into a list of (speaker_idx_0based, line_text) tuples.
+
+    Recognises both the user-friendly form:
+        [speaker_1]: Hello world
+    and the model-internal form:
+        <|speaker:0|>: Hello world
+
+    Lines that do not start with a speaker tag are silently dropped.
+    Lines within a single speaker turn that span multiple physical lines are
+    joined back together.
+
+    Returns: list of (int, str) — (0-based speaker index, text for that turn)
+    """
+    import re
+
+    # Match [speaker_N]: or <|speaker:N|>: at the start of a logical line
+    tag_re = re.compile(
+        r'^\s*(?:\[speaker_(\d+)\]|<\|speaker:(\d+)\|>):?\s*(.*)$'
+    )
+
+    lines = text.splitlines()
+    turns = []          # [(speaker_0based, text), ...]
+    current_speaker = None
+    current_parts = []
+
+    for raw in lines:
+        m = tag_re.match(raw)
+        if m:
+            # Flush previous turn
+            if current_speaker is not None and current_parts:
+                turns.append((current_speaker, " ".join(current_parts).strip()))
+            # Start new turn
+            # group(1) = 1-based from [speaker_N], group(2) = 0-based from <|speaker:N|>
+            if m.group(1) is not None:
+                current_speaker = int(m.group(1)) - 1   # convert to 0-based
+            else:
+                current_speaker = int(m.group(2))       # already 0-based
+            current_parts = [m.group(3)] if m.group(3).strip() else []
+        else:
+            stripped = raw.strip()
+            if stripped and current_speaker is not None:
+                current_parts.append(stripped)
+
+    # Flush last turn
+    if current_speaker is not None and current_parts:
+        turns.append((current_speaker, " ".join(current_parts).strip()))
+
+    return turns
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +318,8 @@ if _V3:
             pause_after_speaker: float,
             num_speakers: dict,
         ) -> IO.NodeOutput:
+            import numpy as np
+
             _check_interrupt()
 
             if not text.strip():
@@ -279,11 +333,8 @@ if _V3:
             # {"num_speakers": "3", "speaker_1_audio": ..., "speaker_1_ref_text": ..., ...}
             n = int(num_speakers["num_speakers"])
 
-            total_steps = 2 + n + 1
-            pbar = ProgressBar(total_steps) if _PBAR else None
-            step = 0
-
-            references = []
+            # Build per-speaker reference objects (index 0-based)
+            references = {}   # {0-based idx: ServeReferenceAudio}
             missing = []
             for i in range(1, n + 1):
                 speaker_audio = num_speakers.get(f"speaker_{i}_audio")
@@ -291,21 +342,14 @@ if _V3:
 
                 if speaker_audio is None:
                     missing.append(i)
-                    references.append(None)
                 else:
                     logger.info(f"Encoding reference audio for speaker {i}...")
                     ref_bytes = audio_bytes_from_comfy(speaker_audio)
                     logger.debug(f"Speaker {i} audio bytes: {len(ref_bytes)}")
-                    references.append(
-                        ServeReferenceAudio(
-                            audio=ref_bytes,
-                            text=speaker_ref_text.strip(),
-                        )
+                    references[i - 1] = ServeReferenceAudio(
+                        audio=ref_bytes,
+                        text=speaker_ref_text.strip(),
                     )
-
-                step += 1
-                if pbar:
-                    pbar.update_absolute(step, total_steps)
 
             if missing:
                 missing_str = ", ".join(f"speaker_{i}_audio" for i in missing)
@@ -317,65 +361,84 @@ if _V3:
 
             _check_interrupt()
 
-            prompt_text = _convert_speaker_tags(text)
-            if language != "auto":
-                prompt_text = f"[{language}] {prompt_text}"
-            actual_seed = seed
-            tokens = max_new_tokens if max_new_tokens > 0 else 0
-
-            request = ServeTTSRequest(
-                text=prompt_text,
-                references=references,
-                reference_id=None,
-                max_new_tokens=tokens,
-                chunk_length=chunk_length,
-                top_p=top_p,
-                repetition_penalty=repetition_penalty,
-                temperature=temperature,
-                seed=actual_seed,
-                streaming=True,
-                format="wav",
-            )
-
-            step += 1
-            if pbar:
-                pbar.update_absolute(step, total_steps)
+            # Parse dialogue into individual (speaker_0based, line_text) turns
+            dialogue_lines = _parse_dialogue_lines(text)
+            if not dialogue_lines:
+                raise ValueError(
+                    "No speaker lines found. Use [speaker_1]: text format."
+                )
 
             logger.info(
-                f"Multi-speaker TTS ({n} speakers): "
-                f"{text[:80]}{'...' if len(text) > 80 else ''}"
+                f"Multi-speaker TTS ({n} speakers): {len(dialogue_lines)} lines — "
+                f"generating each line independently then concatenating."
             )
-            segments = []
+
+            tokens = max_new_tokens if max_new_tokens > 0 else 0
             sample_rate = 44100
+            audio_turns = []   # one numpy array per dialogue line
 
-            for result in engine.inference(request):
-                if result.code == "error":
-                    raise RuntimeError(f"Fish S2 error: {result.error}")
-                if result.code == "segment":
-                    sr, seg = result.audio
-                    segments.append((sr, seg))
-                if result.code == "final":
-                    sample_rate, audio_out = result.audio
+            total_steps = len(dialogue_lines)
+            pbar = ProgressBar(total_steps) if _PBAR else None
 
-            if len(segments) == 0 and audio_out is None:
-                raise RuntimeError("No audio produced.")
+            for line_idx, (speaker_idx, line_text) in enumerate(dialogue_lines):
+                _check_interrupt()
 
-            if len(segments) > 0 and pause_after_speaker > 0:
-                import numpy as np
+                if speaker_idx not in references:
+                    raise ValueError(
+                        f"Line {line_idx + 1} uses speaker index {speaker_idx + 1} "
+                        f"but no reference audio was provided for that speaker."
+                    )
+
+                lang_prefix = f"[{language}] " if language != "auto" else ""
+                request_text = f"{lang_prefix}{line_text}"
+
+                logger.info(
+                    f"  Line {line_idx + 1}/{len(dialogue_lines)} "
+                    f"[speaker_{speaker_idx + 1}]: {line_text[:60]}"
+                    f"{'...' if len(line_text) > 60 else ''}"
+                )
+
+                request = ServeTTSRequest(
+                    text=request_text,
+                    references=[references[speaker_idx]],
+                    reference_id=None,
+                    max_new_tokens=tokens,
+                    chunk_length=chunk_length,
+                    top_p=top_p,
+                    repetition_penalty=repetition_penalty,
+                    temperature=temperature,
+                    seed=seed + line_idx,   # vary seed per line for naturalness
+                    streaming=False,
+                    format="wav",
+                )
+
+                line_audio = None
+                for result in engine.inference(request):
+                    if result.code == "error":
+                        raise RuntimeError(f"Fish S2 error on line {line_idx + 1}: {result.error}")
+                    if result.code == "final":
+                        sr, line_audio = result.audio
+                        sample_rate = sr
+
+                if line_audio is None:
+                    raise RuntimeError(f"No audio produced for line {line_idx + 1}.")
+
+                audio_turns.append(line_audio)
+
+                if pbar:
+                    pbar.update_absolute(line_idx + 1, total_steps)
+
+            # Concatenate all turns with optional silence between them
+            if pause_after_speaker > 0:
                 silence_samples = int(pause_after_speaker * sample_rate)
                 silence = np.zeros(silence_samples, dtype=np.float32)
-                audio_segments = [s[1] for s in segments]
-                audio_out = audio_segments[0]
-                for seg in audio_segments[1:]:
-                    audio_out = np.concatenate([audio_out, silence, seg], axis=0)
-            elif audio_out is None:
-                audio_out = np.concatenate([s[1] for s in segments], axis=0)
+                audio_out = audio_turns[0]
+                for turn in audio_turns[1:]:
+                    audio_out = np.concatenate([audio_out, silence, turn], axis=0)
+            else:
+                audio_out = np.concatenate(audio_turns, axis=0)
 
             output = numpy_audio_to_comfy(audio_out, sample_rate)
-
-            step += 1
-            if pbar:
-                pbar.update_absolute(step, total_steps)
 
             if not keep_model_loaded:
                 unload_engine()
@@ -452,6 +515,8 @@ else:
             max_new_tokens, chunk_length, temperature, top_p, repetition_penalty,
             seed, pause_after_speaker, keep_model_loaded, compile_model, **kwargs,
         ):
+            import numpy as np
+
             _check_interrupt()
             if not text.strip():
                 raise ValueError("Text cannot be empty.")
@@ -460,27 +525,21 @@ else:
 
             from fish_speech.utils.schema import ServeReferenceAudio, ServeTTSRequest
 
-            total_steps = 2 + num_speakers + 1
-            pbar = ProgressBar(total_steps) if _PBAR else None
-            step = 0
-
-            references = []
+            # Build per-speaker reference map (0-based index)
+            references = {}
             missing = []
             for i in range(1, num_speakers + 1):
                 speaker_audio = kwargs.get(f"speaker_{i}_audio")
                 speaker_ref_text = kwargs.get(f"speaker_{i}_ref_text") or ""
                 if speaker_audio is None:
                     missing.append(i)
-                    references.append(None)
                 else:
+                    logger.info(f"Encoding reference audio for speaker {i}...")
                     ref_bytes = audio_bytes_from_comfy(speaker_audio)
                     logger.debug(f"Speaker {i} audio bytes: {len(ref_bytes)}")
-                    references.append(
-                        ServeReferenceAudio(audio=ref_bytes, text=speaker_ref_text.strip())
+                    references[i - 1] = ServeReferenceAudio(
+                        audio=ref_bytes, text=speaker_ref_text.strip()
                     )
-                step += 1
-                if pbar:
-                    pbar.update_absolute(step, total_steps)
 
             if missing:
                 missing_str = ", ".join(f"speaker_{i}_audio" for i in missing)
@@ -491,53 +550,85 @@ else:
                 )
 
             _check_interrupt()
-            prompt_text = _convert_speaker_tags(text)
-            if language != "auto":
-                prompt_text = f"[{language}] {prompt_text}"
-            actual_seed = seed
-            tokens = max_new_tokens if max_new_tokens > 0 else 0
 
-            request = ServeTTSRequest(
-                text=prompt_text, references=references, reference_id=None,
-                max_new_tokens=tokens, chunk_length=chunk_length, top_p=top_p,
-                repetition_penalty=repetition_penalty, temperature=temperature,
-                seed=actual_seed, streaming=True, format="wav",
+            # Parse dialogue into individual (speaker_0based, line_text) turns
+            dialogue_lines = _parse_dialogue_lines(text)
+            if not dialogue_lines:
+                raise ValueError(
+                    "No speaker lines found. Use [speaker_1]: text format."
+                )
+
+            logger.info(
+                f"Multi-speaker TTS ({num_speakers} speakers): "
+                f"{len(dialogue_lines)} lines — generating each line independently."
             )
 
-            step += 1
-            if pbar:
-                pbar.update_absolute(step, total_steps)
-
-            segments = []
+            tokens = max_new_tokens if max_new_tokens > 0 else 0
             sample_rate = 44100
-            audio_out = None
-            for result in engine.inference(request):
-                if result.code == "error":
-                    raise RuntimeError(f"Fish S2 error: {result.error}")
-                if result.code == "segment":
-                    sr, seg = result.audio
-                    segments.append((sr, seg))
-                if result.code == "final":
-                    sample_rate, audio_out = result.audio
+            audio_turns = []
 
-            if len(segments) == 0 and audio_out is None:
-                raise RuntimeError("No audio produced.")
+            total_steps = len(dialogue_lines)
+            pbar = ProgressBar(total_steps) if _PBAR else None
 
-            if len(segments) > 0 and pause_after_speaker > 0:
-                import numpy as np
+            for line_idx, (speaker_idx, line_text) in enumerate(dialogue_lines):
+                _check_interrupt()
+
+                if speaker_idx not in references:
+                    raise ValueError(
+                        f"Line {line_idx + 1} uses speaker index {speaker_idx + 1} "
+                        f"but no reference audio was provided for that speaker."
+                    )
+
+                lang_prefix = f"[{language}] " if language != "auto" else ""
+                request_text = f"{lang_prefix}{line_text}"
+
+                logger.info(
+                    f"  Line {line_idx + 1}/{len(dialogue_lines)} "
+                    f"[speaker_{speaker_idx + 1}]: {line_text[:60]}"
+                    f"{'...' if len(line_text) > 60 else ''}"
+                )
+
+                request = ServeTTSRequest(
+                    text=request_text,
+                    references=[references[speaker_idx]],
+                    reference_id=None,
+                    max_new_tokens=tokens,
+                    chunk_length=chunk_length,
+                    top_p=top_p,
+                    repetition_penalty=repetition_penalty,
+                    temperature=temperature,
+                    seed=seed + line_idx,
+                    streaming=False,
+                    format="wav",
+                )
+
+                line_audio = None
+                for result in engine.inference(request):
+                    if result.code == "error":
+                        raise RuntimeError(f"Fish S2 error on line {line_idx + 1}: {result.error}")
+                    if result.code == "final":
+                        sr, line_audio = result.audio
+                        sample_rate = sr
+
+                if line_audio is None:
+                    raise RuntimeError(f"No audio produced for line {line_idx + 1}.")
+
+                audio_turns.append(line_audio)
+
+                if pbar:
+                    pbar.update_absolute(line_idx + 1, total_steps)
+
+            # Concatenate all turns with optional silence between them
+            if pause_after_speaker > 0:
                 silence_samples = int(pause_after_speaker * sample_rate)
                 silence = np.zeros(silence_samples, dtype=np.float32)
-                audio_segments = [s[1] for s in segments]
-                audio_out = audio_segments[0]
-                for seg in audio_segments[1:]:
-                    audio_out = np.concatenate([audio_out, silence, seg], axis=0)
-            elif audio_out is None:
-                audio_out = np.concatenate([s[1] for s in segments], axis=0)
+                audio_out = audio_turns[0]
+                for turn in audio_turns[1:]:
+                    audio_out = np.concatenate([audio_out, silence, turn], axis=0)
+            else:
+                audio_out = np.concatenate(audio_turns, axis=0)
 
             output = numpy_audio_to_comfy(audio_out, sample_rate)
-            step += 1
-            if pbar:
-                pbar.update_absolute(step, total_steps)
 
             if not keep_model_loaded:
                 unload_engine()
