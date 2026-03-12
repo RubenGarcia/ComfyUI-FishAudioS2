@@ -321,8 +321,11 @@ def load_engine(
     except ImportError as e:
         raise ImportError(
             f"fish_speech package not found: {e}\n"
-            "Install it with:\n"
-            "  pip install git+https://github.com/fishaudio/fish-speech"
+            "DO NOT run 'pip install git+https://github.com/fishaudio/fish-speech' — "
+            "it will overwrite your PyTorch installation.\n"
+            "fish_speech is bundled inside this node. A missing dependency caused this.\n"
+            "Fix: git pull the latest version of ComfyUI-fish-audio-s2, then restart ComfyUI.\n"
+            "The node will auto-install the missing package on startup."
         ) from e
 
     model_path = resolve_model_path(model_name)

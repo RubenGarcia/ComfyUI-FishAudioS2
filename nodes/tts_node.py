@@ -5,8 +5,12 @@ from typing import Tuple
 
 from .loader import get_model_names, load_engine, numpy_audio_to_comfy
 from .model_cache import (
+    cancel_event,
     get_cache_key,
     get_cached_engine,
+    is_offloaded,
+    offload_engine_to_cpu,
+    resume_engine_to_cuda,
     set_cached_engine,
     unload_engine,
 )
@@ -148,6 +152,16 @@ class FishS2TTS:
                         "OFF = model unloaded after each run (frees VRAM)."
                     ),
                 }),
+                "offload_to_cpu": ("BOOLEAN", {
+                    "default": False,
+                    "tooltip": (
+                        "After generation, move the model to CPU instead of "
+                        "keeping it in VRAM. Frees VRAM while avoiding the "
+                        "full reload penalty. Slower than keep_model_loaded "
+                        "but faster than a cold load. Ignored if "
+                        "keep_model_loaded is OFF."
+                    ),
+                }),
                 "compile_model": ("BOOLEAN", {
                     "default": False,
                     "tooltip": (
@@ -183,14 +197,16 @@ class FishS2TTS:
         repetition_penalty: float,
         seed: int,
         keep_model_loaded: bool,
+        offload_to_cpu: bool,
         compile_model: bool,
     ) -> Tuple[dict]:
+        cancel_event.clear()
         self._check_interrupt()
 
         if not text.strip():
             raise ValueError("Text cannot be empty.")
 
-        engine = self._get_engine(model_path, device, precision, attention, compile_model, keep_model_loaded)
+        engine = self._get_engine(model_path, device, precision, attention, compile_model, keep_model_loaded, offload_to_cpu)
 
         from fish_speech.utils.schema import ServeTTSRequest
 
@@ -223,34 +239,45 @@ class FishS2TTS:
         audio_out = None
         sample_rate = 44100
 
-        for result in engine.inference(request):
-            self._check_interrupt()
-            if result.code == "error":
-                raise RuntimeError(f"Fish S2 error: {result.error}")
-            if result.code == "final":
-                sample_rate, audio_out = result.audio
+        try:
+            for result in engine.inference(request):
+                self._check_interrupt()
+                if result.code == "error":
+                    raise RuntimeError(f"Fish S2 error: {result.error}")
+                if result.code == "final":
+                    sample_rate, audio_out = result.audio
 
-        if pbar:
-            pbar.update_absolute(2, 3)
+            if pbar:
+                pbar.update_absolute(2, 3)
 
-        if audio_out is None:
-            raise RuntimeError("No audio produced.")
+            if audio_out is None:
+                raise RuntimeError("No audio produced.")
 
-        output = numpy_audio_to_comfy(audio_out, sample_rate)
+            output = numpy_audio_to_comfy(audio_out, sample_rate)
 
-        if pbar:
-            pbar.update_absolute(3, 3)
+            if pbar:
+                pbar.update_absolute(3, 3)
 
-        if not keep_model_loaded:
-            unload_engine()
+        finally:
+            # Always run on completion, cancellation, or error.
+            if not keep_model_loaded:
+                unload_engine()
+            elif offload_to_cpu:
+                offload_engine_to_cpu()
 
         return (output,)
 
-    def _get_engine(self, model_path, device, precision, attention, compile_model, keep_loaded=False):
+    def _get_engine(self, model_path, device, precision, attention, compile_model, keep_loaded=False, offload_to_cpu=False):
+        from .loader import resolve_device
         key = get_cache_key(model_path, device, precision, attention)
         cached_engine, cached_key = get_cached_engine()
         if cached_engine is not None and cached_key == key:
-            logger.info("Reusing cached Fish S2 engine.")
+            if is_offloaded():
+                device_str, _ = resolve_device(device)
+                logger.info(f"Resuming offloaded engine to {device_str}...")
+                resume_engine_to_cuda(device_str)
+            else:
+                logger.info("Reusing cached Fish S2 engine.")
             return cached_engine
         if cached_engine is not None:
             unload_engine()
@@ -263,4 +290,5 @@ class FishS2TTS:
             try:
                 mm.throw_exception_if_processing_interrupted()
             except Exception:
+                cancel_event.set()
                 raise

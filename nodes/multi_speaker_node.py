@@ -16,8 +16,12 @@ from .loader import (
     numpy_audio_to_comfy,
 )
 from .model_cache import (
+    cancel_event,
     get_cache_key,
     get_cached_engine,
+    is_offloaded,
+    offload_engine_to_cpu,
+    resume_engine_to_cuda,
     set_cached_engine,
     unload_engine,
 )
@@ -271,6 +275,15 @@ if _V3:
                         ),
                     ),
                     IO.Boolean.Input(
+                        "offload_to_cpu",
+                        default=False,
+                        tooltip=(
+                            "After generation, move the model to CPU instead of "
+                            "keeping it in VRAM. Frees VRAM while avoiding the "
+                            "full reload penalty. Ignored if keep_model_loaded is OFF."
+                        ),
+                    ),
+                    IO.Boolean.Input(
                         "compile_model",
                         default=False,
                         tooltip=(
@@ -314,18 +327,20 @@ if _V3:
             repetition_penalty: float,
             seed: int,
             keep_model_loaded: bool,
+            offload_to_cpu: bool,
             compile_model: bool,
             pause_after_speaker: float,
             num_speakers: dict,
         ) -> IO.NodeOutput:
             import numpy as np
 
+            cancel_event.clear()
             _check_interrupt()
 
             if not text.strip():
                 raise ValueError("Text cannot be empty.")
 
-            engine = _get_engine(model_path, device, precision, attention, compile_model, keep_model_loaded)
+            engine = _get_engine(model_path, device, precision, attention, compile_model, keep_model_loaded, offload_to_cpu)
 
             from fish_speech.utils.schema import ServeReferenceAudio, ServeTTSRequest
 
@@ -380,68 +395,73 @@ if _V3:
             total_steps = len(dialogue_lines)
             pbar = ProgressBar(total_steps) if _PBAR else None
 
-            for line_idx, (speaker_idx, line_text) in enumerate(dialogue_lines):
-                _check_interrupt()
+            try:
+                for line_idx, (speaker_idx, line_text) in enumerate(dialogue_lines):
+                    _check_interrupt()
 
-                if speaker_idx not in references:
-                    raise ValueError(
-                        f"Line {line_idx + 1} uses speaker index {speaker_idx + 1} "
-                        f"but no reference audio was provided for that speaker."
+                    if speaker_idx not in references:
+                        raise ValueError(
+                            f"Line {line_idx + 1} uses speaker index {speaker_idx + 1} "
+                            f"but no reference audio was provided for that speaker."
+                        )
+
+                    lang_prefix = f"[{language}] " if language != "auto" else ""
+                    request_text = f"{lang_prefix}{line_text}"
+
+                    logger.info(
+                        f"  Line {line_idx + 1}/{len(dialogue_lines)} "
+                        f"[speaker_{speaker_idx + 1}]: {line_text[:60]}"
+                        f"{'...' if len(line_text) > 60 else ''}"
                     )
 
-                lang_prefix = f"[{language}] " if language != "auto" else ""
-                request_text = f"{lang_prefix}{line_text}"
+                    request = ServeTTSRequest(
+                        text=request_text,
+                        references=[references[speaker_idx]],
+                        reference_id=None,
+                        max_new_tokens=tokens,
+                        chunk_length=chunk_length,
+                        top_p=top_p,
+                        repetition_penalty=repetition_penalty,
+                        temperature=temperature,
+                        seed=seed + line_idx,   # vary seed per line for naturalness
+                        streaming=False,
+                        format="wav",
+                    )
 
-                logger.info(
-                    f"  Line {line_idx + 1}/{len(dialogue_lines)} "
-                    f"[speaker_{speaker_idx + 1}]: {line_text[:60]}"
-                    f"{'...' if len(line_text) > 60 else ''}"
-                )
+                    line_audio = None
+                    for result in engine.inference(request):
+                        if result.code == "error":
+                            raise RuntimeError(f"Fish S2 error on line {line_idx + 1}: {result.error}")
+                        if result.code == "final":
+                            sr, line_audio = result.audio
+                            sample_rate = sr
 
-                request = ServeTTSRequest(
-                    text=request_text,
-                    references=[references[speaker_idx]],
-                    reference_id=None,
-                    max_new_tokens=tokens,
-                    chunk_length=chunk_length,
-                    top_p=top_p,
-                    repetition_penalty=repetition_penalty,
-                    temperature=temperature,
-                    seed=seed + line_idx,   # vary seed per line for naturalness
-                    streaming=False,
-                    format="wav",
-                )
+                    if line_audio is None:
+                        raise RuntimeError(f"No audio produced for line {line_idx + 1}.")
 
-                line_audio = None
-                for result in engine.inference(request):
-                    if result.code == "error":
-                        raise RuntimeError(f"Fish S2 error on line {line_idx + 1}: {result.error}")
-                    if result.code == "final":
-                        sr, line_audio = result.audio
-                        sample_rate = sr
+                    audio_turns.append(line_audio)
 
-                if line_audio is None:
-                    raise RuntimeError(f"No audio produced for line {line_idx + 1}.")
+                    if pbar:
+                        pbar.update_absolute(line_idx + 1, total_steps)
 
-                audio_turns.append(line_audio)
+                # Concatenate all turns with optional silence between them
+                if pause_after_speaker > 0:
+                    silence_samples = int(pause_after_speaker * sample_rate)
+                    silence = np.zeros(silence_samples, dtype=np.float32)
+                    audio_out = audio_turns[0]
+                    for turn in audio_turns[1:]:
+                        audio_out = np.concatenate([audio_out, silence, turn], axis=0)
+                else:
+                    audio_out = np.concatenate(audio_turns, axis=0)
 
-                if pbar:
-                    pbar.update_absolute(line_idx + 1, total_steps)
+                output = numpy_audio_to_comfy(audio_out, sample_rate)
 
-            # Concatenate all turns with optional silence between them
-            if pause_after_speaker > 0:
-                silence_samples = int(pause_after_speaker * sample_rate)
-                silence = np.zeros(silence_samples, dtype=np.float32)
-                audio_out = audio_turns[0]
-                for turn in audio_turns[1:]:
-                    audio_out = np.concatenate([audio_out, silence, turn], axis=0)
-            else:
-                audio_out = np.concatenate(audio_turns, axis=0)
-
-            output = numpy_audio_to_comfy(audio_out, sample_rate)
-
-            if not keep_model_loaded:
-                unload_engine()
+            finally:
+                # Always run on completion, cancellation, or error.
+                if not keep_model_loaded:
+                    unload_engine()
+                elif offload_to_cpu:
+                    offload_engine_to_cpu()
 
             return IO.NodeOutput(output)
 
@@ -498,6 +518,14 @@ else:
                         "tooltip": "Seconds of silence to add after each speaker's turn.",
                     }),
                     "keep_model_loaded": ("BOOLEAN", {"default": True}),
+                    "offload_to_cpu": ("BOOLEAN", {
+                        "default": False,
+                        "tooltip": (
+                            "After generation, move the model to CPU instead of "
+                            "keeping it in VRAM. Frees VRAM while avoiding the "
+                            "full reload penalty. Ignored if keep_model_loaded is OFF."
+                        ),
+                    }),
                     "compile_model": ("BOOLEAN", {"default": False}),
                 },
                 "optional": optional_inputs,
@@ -513,15 +541,16 @@ else:
             self,
             model_path, text, num_speakers, language, device, precision, attention,
             max_new_tokens, chunk_length, temperature, top_p, repetition_penalty,
-            seed, pause_after_speaker, keep_model_loaded, compile_model, **kwargs,
+            seed, pause_after_speaker, keep_model_loaded, offload_to_cpu, compile_model, **kwargs,
         ):
             import numpy as np
 
+            cancel_event.clear()
             _check_interrupt()
             if not text.strip():
                 raise ValueError("Text cannot be empty.")
 
-            engine = _get_engine(model_path, device, precision, attention, compile_model, keep_model_loaded)
+            engine = _get_engine(model_path, device, precision, attention, compile_model, keep_model_loaded, offload_to_cpu)
 
             from fish_speech.utils.schema import ServeReferenceAudio, ServeTTSRequest
 
@@ -570,68 +599,73 @@ else:
             total_steps = len(dialogue_lines)
             pbar = ProgressBar(total_steps) if _PBAR else None
 
-            for line_idx, (speaker_idx, line_text) in enumerate(dialogue_lines):
-                _check_interrupt()
+            try:
+                for line_idx, (speaker_idx, line_text) in enumerate(dialogue_lines):
+                    _check_interrupt()
 
-                if speaker_idx not in references:
-                    raise ValueError(
-                        f"Line {line_idx + 1} uses speaker index {speaker_idx + 1} "
-                        f"but no reference audio was provided for that speaker."
+                    if speaker_idx not in references:
+                        raise ValueError(
+                            f"Line {line_idx + 1} uses speaker index {speaker_idx + 1} "
+                            f"but no reference audio was provided for that speaker."
+                        )
+
+                    lang_prefix = f"[{language}] " if language != "auto" else ""
+                    request_text = f"{lang_prefix}{line_text}"
+
+                    logger.info(
+                        f"  Line {line_idx + 1}/{len(dialogue_lines)} "
+                        f"[speaker_{speaker_idx + 1}]: {line_text[:60]}"
+                        f"{'...' if len(line_text) > 60 else ''}"
                     )
 
-                lang_prefix = f"[{language}] " if language != "auto" else ""
-                request_text = f"{lang_prefix}{line_text}"
+                    request = ServeTTSRequest(
+                        text=request_text,
+                        references=[references[speaker_idx]],
+                        reference_id=None,
+                        max_new_tokens=tokens,
+                        chunk_length=chunk_length,
+                        top_p=top_p,
+                        repetition_penalty=repetition_penalty,
+                        temperature=temperature,
+                        seed=seed + line_idx,
+                        streaming=False,
+                        format="wav",
+                    )
 
-                logger.info(
-                    f"  Line {line_idx + 1}/{len(dialogue_lines)} "
-                    f"[speaker_{speaker_idx + 1}]: {line_text[:60]}"
-                    f"{'...' if len(line_text) > 60 else ''}"
-                )
+                    line_audio = None
+                    for result in engine.inference(request):
+                        if result.code == "error":
+                            raise RuntimeError(f"Fish S2 error on line {line_idx + 1}: {result.error}")
+                        if result.code == "final":
+                            sr, line_audio = result.audio
+                            sample_rate = sr
 
-                request = ServeTTSRequest(
-                    text=request_text,
-                    references=[references[speaker_idx]],
-                    reference_id=None,
-                    max_new_tokens=tokens,
-                    chunk_length=chunk_length,
-                    top_p=top_p,
-                    repetition_penalty=repetition_penalty,
-                    temperature=temperature,
-                    seed=seed + line_idx,
-                    streaming=False,
-                    format="wav",
-                )
+                    if line_audio is None:
+                        raise RuntimeError(f"No audio produced for line {line_idx + 1}.")
 
-                line_audio = None
-                for result in engine.inference(request):
-                    if result.code == "error":
-                        raise RuntimeError(f"Fish S2 error on line {line_idx + 1}: {result.error}")
-                    if result.code == "final":
-                        sr, line_audio = result.audio
-                        sample_rate = sr
+                    audio_turns.append(line_audio)
 
-                if line_audio is None:
-                    raise RuntimeError(f"No audio produced for line {line_idx + 1}.")
+                    if pbar:
+                        pbar.update_absolute(line_idx + 1, total_steps)
 
-                audio_turns.append(line_audio)
+                # Concatenate all turns with optional silence between them
+                if pause_after_speaker > 0:
+                    silence_samples = int(pause_after_speaker * sample_rate)
+                    silence = np.zeros(silence_samples, dtype=np.float32)
+                    audio_out = audio_turns[0]
+                    for turn in audio_turns[1:]:
+                        audio_out = np.concatenate([audio_out, silence, turn], axis=0)
+                else:
+                    audio_out = np.concatenate(audio_turns, axis=0)
 
-                if pbar:
-                    pbar.update_absolute(line_idx + 1, total_steps)
+                output = numpy_audio_to_comfy(audio_out, sample_rate)
 
-            # Concatenate all turns with optional silence between them
-            if pause_after_speaker > 0:
-                silence_samples = int(pause_after_speaker * sample_rate)
-                silence = np.zeros(silence_samples, dtype=np.float32)
-                audio_out = audio_turns[0]
-                for turn in audio_turns[1:]:
-                    audio_out = np.concatenate([audio_out, silence, turn], axis=0)
-            else:
-                audio_out = np.concatenate(audio_turns, axis=0)
-
-            output = numpy_audio_to_comfy(audio_out, sample_rate)
-
-            if not keep_model_loaded:
-                unload_engine()
+            finally:
+                # Always run on completion, cancellation, or error.
+                if not keep_model_loaded:
+                    unload_engine()
+                elif offload_to_cpu:
+                    offload_engine_to_cpu()
 
             return (output,)
 
@@ -640,11 +674,17 @@ else:
 # Shared helpers (used by both the v3 class method and v2 instance method)
 # ---------------------------------------------------------------------------
 
-def _get_engine(model_path, device, precision, attention, compile_model, keep_loaded=False):
+def _get_engine(model_path, device, precision, attention, compile_model, keep_loaded=False, offload_to_cpu=False):
+    from .loader import resolve_device
     key = get_cache_key(model_path, device, precision, attention)
     cached_engine, cached_key = get_cached_engine()
     if cached_engine is not None and cached_key == key:
-        logger.info("Reusing cached Fish S2 engine.")
+        if is_offloaded():
+            device_str, _ = resolve_device(device)
+            logger.info(f"Resuming offloaded engine to {device_str}...")
+            resume_engine_to_cuda(device_str)
+        else:
+            logger.info("Reusing cached Fish S2 engine.")
         return cached_engine
     if cached_engine is not None:
         unload_engine()
@@ -658,4 +698,5 @@ def _check_interrupt():
         try:
             mm.throw_exception_if_processing_interrupted()
         except Exception:
+            cancel_event.set()
             raise

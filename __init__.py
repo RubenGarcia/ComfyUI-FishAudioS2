@@ -9,7 +9,7 @@ Required pip packages are auto-installed on startup.
 Model weights are auto-downloaded from HuggingFace on first inference.
 """
 
-__version__ = "0.2.5"
+__version__ = "0.2.6"
 
 import logging
 import subprocess
@@ -116,6 +116,10 @@ _REQUIRED = [
     ("google.protobuf", "protobuf>=4.21.0"),
     ("safetensors",     "safetensors>=0.4.0"),
     ("pyrootutils",     "pyrootutils>=1.0.4"),
+    ("natsort",         "natsort>=8.4.0"),
+    ("loralib",         "loralib>=0.1.2"),
+    ("hydra",           "hydra-core>=1.3.2"),
+    ("einx",            "einx[torch]==0.2.2"),
 ]
 
 

@@ -206,7 +206,19 @@ def decode_n_tokens(
     # [MODIFIED] Pre-fetch ID for efficiency loop
     im_end_id = model.tokenizer.get_token_id(IM_END_TOKEN)
 
+    # Import cancel event from node cache if available.
+    _cancel_event = None
+    try:
+        from nodes.model_cache import cancel_event as _cancel_event
+    except Exception:
+        pass
+
     for i in tqdm(range(num_new_tokens)):
+        # Check cancel flag — set by main thread when user hits cancel.
+        if _cancel_event is not None and _cancel_event.is_set():
+            logger.info("Generation cancelled by user — stopping token loop.")
+            break
+
         with sdpa_kernel(SDPBackend.MATH):
             next_token = decode_one_token(
                 model=model,
@@ -234,6 +246,11 @@ def decode_n_tokens(
             break
 
     del cur_token
+
+    if not new_tokens:
+        # Cancelled before any tokens were generated — return a minimal tensor.
+        return torch.zeros((model.config.num_codebooks + 1, 0),
+                           dtype=torch.int, device=cur_token.device if False else input_pos.device)
 
     return torch.cat(new_tokens, dim=1)
 
@@ -773,6 +790,28 @@ def launch_thread_safe_queue(
 
             kwargs = item.request
             response_queue = item.response_queue
+
+            # CPU offload/resume control message — not a generation request.
+            if "__offload__" in kwargs:
+                target_device = kwargs["__offload__"]
+                try:
+                    model.to(target_device)
+                    # fixed_* tensors are plain attributes (not registered buffers)
+                    # so model.to() does NOT move them — move manually.
+                    for attr in ("fixed_temperature", "fixed_top_p", "fixed_repetition_penalty"):
+                        if hasattr(model, attr):
+                            setattr(model, attr, getattr(model, attr).to(target_device))
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    response_queue.put(
+                        WrappedGenerateResponse(status="success", response=None)
+                    )
+                except Exception as e:
+                    logger.error(f"Offload/resume failed: {e}")
+                    response_queue.put(
+                        WrappedGenerateResponse(status="error", response=e)
+                    )
+                continue
 
             try:
                 for chunk in generate_long(
