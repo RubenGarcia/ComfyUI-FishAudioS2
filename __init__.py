@@ -9,7 +9,7 @@ Required pip packages are auto-installed on startup.
 Model weights are auto-downloaded from HuggingFace on first inference.
 """
 
-__version__ = "0.2.8"
+__version__ = "0.2.9"
 
 import logging
 import subprocess
@@ -24,19 +24,11 @@ from typing import Any, Dict
 # ---------------------------------------------------------------------------
 _HERE = Path(__file__).parent.resolve()
 _FISH_SRC = _HERE / "fish_speech_src"
-_GPTQ_SRC = _HERE / "auto_gptq_src"
-
 # Add fish_speech_src to path
 if _FISH_SRC.is_dir():
     _fish_src_str = str(_FISH_SRC)
     if _fish_src_str not in sys.path:
         sys.path.insert(0, _fish_src_str)
-
-# Add auto_gptq_src to path (for GPTQ quantized model support)
-if _GPTQ_SRC.is_dir():
-    _gptq_src_str = str(_GPTQ_SRC)
-    if _gptq_src_str not in sys.path:
-        sys.path.insert(0, _gptq_src_str)
 
 logger = logging.getLogger("FishAudioS2")
 logger.propagate = False

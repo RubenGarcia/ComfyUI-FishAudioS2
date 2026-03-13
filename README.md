@@ -8,7 +8,6 @@
   <p>
     <a href="https://fish.audio/"><img src="https://img.shields.io/badge/Playground-Fish_Audio-1f7a8c?style=flat-square&logo=readme&logoColor=white" alt="Fish Audio Playground"></a>
     <a href="https://huggingface.co/fishaudio/s2-pro"><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-blue' alt="HF Model"></a>
-    <a href="https://huggingface.co/baicai1145/s2-pro-w4a16"><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Quantized-4bit-purple' alt="Quantized Model"></a>
     <a href="https://huggingface.co/drbaph/s2-pro-fp8"><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Quantized-FP8-orange' alt="FP8 Model"></a>
     <a href="https://github.com/fishaudio/fish-speech"><img src="https://img.shields.io/badge/GitHub-Original-green" alt="GitHub"></a>
     <a href="https://huggingface.co/papers/2603.08823"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20HF-Paper-yellow" alt="HF Paper"></a>
@@ -59,7 +58,6 @@ This ComfyUI wrapper provides native node-based integration with:
 ##  Requirements
 
 - **GPU:** NVIDIA GPU with **24GB+ VRAM** for full model (RTX 3090/4090, A5000, etc.)
-  - **12GB+ VRAM** works with the **GPTQ W4A16 quantized model** (`s2-pro-w4a16`)
   - **16GB+ VRAM** works with **BNB NF4 4-bit on-the-fly quantization** (slower, ~5 it/s)
   - **18GB+ VRAM** works with **BNB INT8 on-the-fly quantization** (slower, ~5 it/s)
   - **20GB+ VRAM** works with the **FP8 quantized model** (`s2-pro-fp8`, ~11 it/s, requires RTX 4090/5090 or Ada/Blackwell GPU)
@@ -67,28 +65,6 @@ This ComfyUI wrapper provides native node-based integration with:
 - **Python:** 3.10+
 - **CUDA:** 11.8+ (for GPU inference)
 
-> **⚠️ GPTQ Quantized Model Requirements:**
-> 
-> The quantized model (`s2-pro-w4a16`) requires **AutoGPTQ** with CUDA kernels:
-> 
-> **Windows (Embedded Python) - Use prebuilt wheel:**
-> ```cmd
-> "path\to\ComfyUI\python_embeded\python.exe" -m pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu128/
-> ```
-> 
-> **Linux - Build from bundled source:**
-> ```bash
-> cd ComfyUI/custom_nodes/ComfyUI-FishAudioS2/auto_gptq_src
-> pip install -e .
-> ```
-> 
-> **Linux - Or use prebuilt wheel:**
-> ```bash
-> pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu128/
-> ```
-> 
-> Replace `cu128` with your CUDA version (`cu121`, `cu124`, etc.)
-> 
 > **⚠️ BNB On-the-Fly Quantization Requirements:**
 > 
 > BNB INT8 and BNB NF4 options use the **s2-pro (bf16)** model and quantize on-the-fly via bitsandbytes.
@@ -107,14 +83,12 @@ This ComfyUI wrapper provides native node-based integration with:
 | Model | VRAM | Speed | Description |
 |-------|------|-------|-------------|
 | **s2-pro** | ~24GB | ~10 it/s | Full precision (4B params) — best quality, works out of the box |
-| **s2-pro-w4a16** | ~8GB | ~10 it/s | GPTQ 4-bit mixed precision — **recommended for 12GB GPUs**, requires AutoGPTQ |
 | **s2-pro-fp8** | ~20GB | ~11 it/s | FP8 weight-only quantized — **recommended for 20GB+ Ada/Blackwell GPUs** (RTX 4090/5090), no extra dependencies |
 | **BNB INT8** | ~18GB | ~5 it/s | On-the-fly INT8 quantization via bitsandbytes — uses s2-pro model, requires bitsandbytes |
 | **BNB NF4** | ~16GB | ~5 it/s | On-the-fly 4-bit NF4 quantization via bitsandbytes — uses s2-pro model, requires bitsandbytes |
 
 Models are auto-downloaded from HuggingFace on first use:
 - [fishaudio/s2-pro](https://huggingface.co/fishaudio/s2-pro) — full model
-- [baicai1145/s2-pro-w4a16](https://huggingface.co/baicai1145/s2-pro-w4a16) — GPTQ 4-bit quantized (experimental)
 - [drbaph/s2-pro-fp8](https://huggingface.co/drbaph/s2-pro-fp8) — FP8 quantized
 
 ---
@@ -284,11 +258,8 @@ S2 Pro supports **1500+ unique emotive tags** using `[tag]` syntax. These are fr
 ComfyUI/
 ├── models/
 │   └── fishaudioS2/
-│       ├── s2-pro/                    # Full model (auto-downloaded)
-│       │   ├── model.pt
-│       │   └── config.json
-│       └── s2-pro-w4a16/              # Quantized model (auto-downloaded)
-│           ├── model.safetensors
+│       └── s2-pro/                    # Full model (auto-downloaded)
+│           ├── model.pt
 │           └── config.json
 └── custom_nodes/
     └── ComfyUI-FishAudioS2/
@@ -300,7 +271,6 @@ ComfyUI/
         │   ├── loader.py
         │   └── model_cache.py
         ├── fish_speech_src/           # Bundled fish-speech source
-        ├── auto_gptq_src/             # Bundled AutoGPTQ source (for quantized model)
         ├── requirements.txt
         └── README.md
 ```
@@ -335,64 +305,10 @@ pip install -U huggingface_hub
 huggingface-cli download fishaudio/s2-pro --local-dir ComfyUI/models/fishaudioS2/s2-pro
 ```
 
-For the GPTQ quantized model, download from [baicai1145/s2-pro-w4a16](https://huggingface.co/baicai1145/s2-pro-w4a16):
-```bash
-huggingface-cli download baicai1145/s2-pro-w4a16 --local-dir ComfyUI/models/fishaudioS2/s2-pro-w4a16
-```
-
 For the FP8 quantized model, download from [drbaph/s2-pro-fp8](https://huggingface.co/drbaph/s2-pro-fp8):
 ```bash
 huggingface-cli download drbaph/s2-pro-fp8 --local-dir ComfyUI/models/fishaudioS2/s2-pro-fp8
 ```
-
-### GPTQ Quantized Model (s2-pro-w4a16)
-
-The quantized model requires **AutoGPTQ**. Installation differs by platform:
-
-<details>
-<summary><b>Windows Instructions (Click to expand)</b></summary>
-
-1. **Check your CUDA version:**
-   ```cmd
-   nvidia-smi
-   ```
-   Look for `CUDA Version: 12.x`
-
-2. **Install AutoGPTQ** using embedded Python (adjust path and CUDA version):
-
-   **For ComfyUI Portable (CUDA 12.8):**
-   ```cmd
-   "python_embeded\python.exe" -m pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu128/
-   ```
-
-   **For ComfyUI Portable (CUDA 12.4):**
-   ```cmd
-   "python_embeded\python.exe" -m pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu124/
-   ```
-
-   > **Note:** Adjust the path to match your actual ComfyUI installation location.
-
-3. **Restart ComfyUI**
-
-</details>
-
-<details>
-<summary><b>Linux Instructions (Click to expand)</b></summary>
-
-**Option 1: Prebuilt Wheel (Recommended)**
-```bash
-pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu121/
-```
-
-**Option 2: Build from Bundled Source**
-```bash
-cd ComfyUI/custom_nodes/ComfyUI-FishAudioS2/auto_gptq_src
-pip install -e .
-```
-
-</details>
-
-> **If installation fails:** Use the full model (`s2-pro`) instead - it works on all systems with 24GB+ VRAM.
 
 ### Missing Dependencies?
 
@@ -421,31 +337,6 @@ Common missing packages:
 
 If errors persist, fall back to `sdpa` or `auto` attention.
 
-### GPTQ Quantized Model Not Working?
-
-The GPTQ model (`s2-pro-w4a16`) requires AutoGPTQ with CUDA kernels.
-
-**Windows (Portable/Embedded Python):**
-1. Check CUDA version: `nvidia-smi`
-2. Install with prebuilt wheel:
-   ```cmd
-   "path\to\ComfyUI\python_embeded\python.exe" -m pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu128/
-   ```
-   Replace `cu128` with your CUDA version (`cu121`, `cu124`, `cu128`)
-
-**Linux:**
-```bash
-cd ComfyUI/custom_nodes/ComfyUI-FishAudioS2/auto_gptq_src
-pip install -e .
-```
-
-Or use prebuilt wheels:
-```bash
-pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu121/
-```
-
-**If all else fails:** Use the full model (`s2-pro`) which works on all systems with 24GB+ VRAM.
-
 </details>
 
 ---
@@ -454,7 +345,6 @@ pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-i
 
 ### 🤗 HuggingFace
 - **Model (Full):** [fishaudio/s2-pro](https://huggingface.co/fishaudio/s2-pro)
-- **Model (4-bit Quantized):** [baicai1145/s2-pro-w4a16](https://huggingface.co/baicai1145/s2-pro-w4a16)
 - **Model (FP8 Quantized):** [drbaph/s2-pro-fp8](https://huggingface.co/drbaph/s2-pro-fp8)
 - **Paper:** [huggingface.co/papers/2603.08823](https://huggingface.co/papers/2603.08823)
 

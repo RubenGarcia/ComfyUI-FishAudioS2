@@ -758,17 +758,6 @@ class BaseTransformer(nn.Module):
                 simple_quantizer = WeightOnlyInt4QuantHandler(model, groupsize)
                 model = simple_quantizer.convert_for_runtime()
 
-            if "w4a16" in str(Path(path)).lower() or "gptq" in str(Path(path)).lower():
-                logger.info("Using GPTQ W4A16 quantization!")
-                try:
-                    from auto_gptq import AutoGPTQForCausalLM, BaseQuantizeConfig
-                    logger.info("GPTQ support available - loading quantized weights")
-                except ImportError:
-                    logger.warning(
-                        "auto-gptq not installed - GPTQ model may not work correctly. "
-                        "Install with: pip install auto-gptq"
-                    )
-
             path_obj = Path(path)
             index_json = path_obj / "model.safetensors.index.json"
             single_st = path_obj / "model.safetensors"

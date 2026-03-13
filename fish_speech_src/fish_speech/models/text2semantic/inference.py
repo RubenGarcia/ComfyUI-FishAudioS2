@@ -840,10 +840,11 @@ def launch_thread_safe_queue(
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
 
-    threading.Thread(target=worker, daemon=True).start()
+    _thread = threading.Thread(target=worker, daemon=True)
+    _thread.start()
     init_event.wait()
 
-    return input_queue
+    return input_queue, _thread
 
 
 @click.command()

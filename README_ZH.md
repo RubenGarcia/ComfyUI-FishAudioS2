@@ -8,7 +8,6 @@
   <p>
     <a href="https://fish.audio/"><img src="https://img.shields.io/badge/Playground-Fish_Audio-1f7a8c?style=flat-square&logo=readme&logoColor=white" alt="Fish Audio Playground"></a>
     <a href="https://huggingface.co/fishaudio/s2-pro"><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-blue' alt="HF Model"></a>
-    <a href="https://huggingface.co/baicai1145/s2-pro-w4a16"><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Quantized-4bit-purple' alt="Quantized Model"></a>
     <a href="https://huggingface.co/drbaph/s2-pro-fp8"><img src='https://img.shields.io/badge/%F0%9F%A4%97%20Quantized-FP8-orange' alt="FP8 Model"></a>
     <a href="https://github.com/fishaudio/fish-speech"><img src="https://img.shields.io/badge/GitHub-Original-green" alt="GitHub"></a>
     <a href="https://huggingface.co/papers/2603.08823"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20HF-Paper-yellow" alt="HF Paper"></a>
@@ -50,7 +49,6 @@
 ## 💻 系统要求
 
 - **GPU：** NVIDIA 显卡，完整模型需 **24GB+ 显存**（RTX 3090/4090、A5000 等）
-  - **12GB+ 显存** 可使用 **GPTQ W4A16 量化模型**（`s2-pro-w4a16`）
   - **16GB+ 显存** 可使用 **BNB NF4 4位实时量化**（较慢，约 5 it/s）
   - **18GB+ 显存** 可使用 **BNB INT8 实时量化**（较慢，约 5 it/s）
   - **20GB+ 显存** 可使用 **FP8 量化模型**（`s2-pro-fp8`，约 11 it/s，需要 RTX 4090/5090 或 Ada/Blackwell 显卡）
@@ -58,28 +56,6 @@
 - **Python：** 3.10+
 - **CUDA：** 11.8+（GPU 推理）
 
-> **⚠️ GPTQ 量化模型要求：**
-> 
-> 量化模型（`s2-pro-w4a16`）需要带 CUDA 内核的 **AutoGPTQ**：
-> 
-> **Windows（嵌入式 Python）- 使用预编译包：**
-> ```cmd
-> "path\to\ComfyUI\python_embeded\python.exe" -m pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu128/
-> ```
-> 
-> **Linux - 从捆绑源码编译：**
-> ```bash
-> cd ComfyUI/custom_nodes/ComfyUI-FishAudioS2/auto_gptq_src
-> pip install -e .
-> ```
-> 
-> **Linux - 或使用预编译包：**
-> ```bash
-> pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu128/
-> ```
-> 
-> 将 `cu128` 替换为您的 CUDA 版本（`cu121`、`cu124` 等）
-> 
 > **⚠️ BNB 实时量化要求：**
 > 
 > BNB INT8 和 BNB NF4 选项使用 **s2-pro (bf16)** 模型，通过 bitsandbytes 实时量化。
@@ -98,14 +74,12 @@
 | 模型 | 显存 | 速度 | 描述 |
 |------|------|------|------|
 | **s2-pro** | ~24GB | ~10 it/s | 完整精度（40亿参数）— 最佳质量，开箱即用 |
-| **s2-pro-w4a16** | ~8GB | ~10 it/s | GPTQ 4位混合精度 — **12GB 显卡推荐**，需要 AutoGPTQ |
 | **s2-pro-fp8** | ~20GB | ~11 it/s | FP8 逐行缩放量化 — **推荐用于 20GB+ Ada/Blackwell 显卡**（RTX 4090/5090），无需额外依赖 |
 | **BNB INT8** | ~18GB | ~5 it/s | 通过 bitsandbytes 实时 INT8 量化 — 使用 s2-pro 模型，需要 bitsandbytes |
 | **BNB NF4** | ~16GB | ~5 it/s | 通过 bitsandbytes 实时 4位 NF4 量化 — 使用 s2-pro 模型，需要 bitsandbytes |
 
 首次使用时自动从 HuggingFace 下载模型：
 - [fishaudio/s2-pro](https://huggingface.co/fishaudio/s2-pro) — 完整模型
-- [baicai1145/s2-pro-w4a16](https://huggingface.co/baicai1145/s2-pro-w4a16) — GPTQ 4位量化
 - [drbaph/s2-pro-fp8](https://huggingface.co/drbaph/s2-pro-fp8) — FP8 量化
 
 ---
@@ -280,7 +254,7 @@ ComfyUI/
 │       ├── s2-pro/                    # 完整模型（自动下载）
 │       │   ├── model.pt
 │       │   └── config.json
-│       └── s2-pro-w4a16/              # 量化模型（自动下载）
+│       └── s2-pro/                    # 完整模型（自动下载）
 │           ├── model.safetensors
 │           └── config.json
 └── custom_nodes/
@@ -293,7 +267,6 @@ ComfyUI/
         │   ├── loader.py
         │   └── model_cache.py
         ├── fish_speech_src/           # 捆绑的 fish-speech 源码
-        ├── auto_gptq_src/             # 捆绑的 AutoGPTQ 源码（用于量化模型）
         ├── requirements.txt
         └── README.md
 ```
@@ -328,64 +301,10 @@ pip install -U huggingface_hub
 huggingface-cli download fishaudio/s2-pro --local-dir ComfyUI/models/fishaudioS2/s2-pro
 ```
 
-GPTQ 量化模型从 [baicai1145/s2-pro-w4a16](https://huggingface.co/baicai1145/s2-pro-w4a16) 下载：
-```bash
-huggingface-cli download baicai1145/s2-pro-w4a16 --local-dir ComfyUI/models/fishaudioS2/s2-pro-w4a16
-```
-
 FP8 量化模型从 [drbaph/s2-pro-fp8](https://huggingface.co/drbaph/s2-pro-fp8) 下载：
 ```bash
 huggingface-cli download drbaph/s2-pro-fp8 --local-dir ComfyUI/models/fishaudioS2/s2-pro-fp8
 ```
-
-### GPTQ 量化模型（s2-pro-w4a16）
-
-量化模型需要 **AutoGPTQ**。不同平台安装方式不同：
-
-<details>
-<summary><b>Windows 说明（点击展开）</b></summary>
-
-1. **检查 CUDA 版本：**
-   ```cmd
-   nvidia-smi
-   ```
-   查看 `CUDA Version: 12.x`
-
-2. **使用嵌入式 Python 安装 AutoGPTQ**（调整路径和 CUDA 版本）：
-
-   **ComfyUI 便携版（CUDA 12.8）：**
-   ```cmd
-   "python_embeded\python.exe" -m pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu128/
-   ```
-
-   **ComfyUI 便携版（CUDA 12.4）：**
-   ```cmd
-   "python_embeded\python.exe" -m pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu124/
-   ```
-
-   > **注意：** 调整路径以匹配您的实际 ComfyUI 安装位置。
-
-3. **重启 ComfyUI**
-
-</details>
-
-<details>
-<summary><b>Linux 说明（点击展开）</b></summary>
-
-**方法 1：预编译包（推荐）**
-```bash
-pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu121/
-```
-
-**方法 2：从捆绑源码编译**
-```bash
-cd ComfyUI/custom_nodes/ComfyUI-FishAudioS2/auto_gptq_src
-pip install -e .
-```
-
-</details>
-
-> **如果安装失败：** 改用完整模型（`s2-pro`）— 在所有 24GB+ 显存系统上均可使用。
 
 ### 缺少依赖？
 
@@ -414,31 +333,6 @@ pip install -r requirements.txt
 
 如果仍有错误，回退到 `sdpa` 或 `auto` 注意力。
 
-### GPTQ 量化模型不工作？
-
-GPTQ 模型（`s2-pro-w4a16`）需要带 CUDA 内核的 AutoGPTQ。
-
-**Windows（便携版/嵌入式 Python）：**
-1. 检查 CUDA 版本：`nvidia-smi`
-2. 使用预编译包安装：
-   ```cmd
-   "path\to\ComfyUI\python_embeded\python.exe" -m pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu128/
-   ```
-   将 `cu128` 替换为您的 CUDA 版本（`cu121`、`cu124`、`cu128`）
-
-**Linux：**
-```bash
-cd ComfyUI/custom_nodes/ComfyUI-FishAudioS2/auto_gptq_src
-pip install -e .
-```
-
-或使用预编译包：
-```bash
-pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-index/whl/cu121/
-```
-
-**如果以上都失败：** 使用完整模型（`s2-pro`），在所有 24GB+ 显存系统上均可使用。
-
 </details>
 
 ---
@@ -447,7 +341,6 @@ pip install auto-gptq --extra-index-url https://huggingface.github.io/autogptq-i
 
 ### 🤗 HuggingFace
 - **模型（完整）：** [fishaudio/s2-pro](https://huggingface.co/fishaudio/s2-pro)
-- **模型（4位量化）：** [baicai1145/s2-pro-w4a16](https://huggingface.co/baicai1145/s2-pro-w4a16)
 - **模型（FP8 量化）：** [drbaph/s2-pro-fp8](https://huggingface.co/drbaph/s2-pro-fp8)
 - **论文：** [huggingface.co/papers/2603.08823](https://huggingface.co/papers/2603.08823)
 

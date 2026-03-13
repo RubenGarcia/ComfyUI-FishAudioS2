@@ -71,10 +71,6 @@ HF_MODELS = {
         "repo_id": "fishaudio/s2-pro",
         "description": "Full precision (4B params, ~24GB VRAM)",
     },
-    "s2-pro-w4a16": {
-        "repo_id": "baicai1145/s2-pro-w4a16",
-        "description": "4-bit quantized (~8GB VRAM, recommended for 12GB GPUs)",
-    },
     "s2-pro-fp8": {
         "repo_id": "drbaph/s2-pro-fp8",
         "description": "FP8 weight-only quantized (~12GB VRAM, requires RTX 4090/5090)",
@@ -166,7 +162,7 @@ def _is_model_downloaded(model_name: str) -> bool:
 def get_model_names() -> list[str]:
     """
     Return model names for the dropdown.
-    Always shows both s2-pro and s2-pro-w4a16 options.
+    Always shows known HF model options.
     Appends '(auto download)' if not yet downloaded.
     Also includes any custom models in the models folder.
     """
@@ -269,7 +265,7 @@ def resolve_precision(precision_choice: str, model_name: str, device: str) -> to
     """
     if precision_choice == "auto":
         is_fp8      = "fp8" in model_name.lower()
-        is_quantized = any(x in model_name.lower() for x in ["w4a16", "gptq", "int4", "4bit"])
+        is_quantized = any(x in model_name.lower() for x in ["int4", "4bit"])
 
         if device == "cuda":
             if is_fp8:
@@ -328,6 +324,10 @@ def load_engine(
                         including the masked path.
     'sage_attention'  — monkey-patch every Attention layer with sageattn.
     """
+    # Strip the " (auto download)" suffix before any HF_MODELS lookups or
+    # bnb detection — the suffix is only display-layer metadata.
+    model_name = _strip_auto_download_suffix(model_name)
+
     device_str, _ = resolve_device(device)
     bnb_mode = resolve_bnb_mode(model_name)
 
@@ -400,7 +400,7 @@ def load_engine(
     # to restore the class immediately afterwards.
     _orig_forward, _attn_cls = _patch_attention_class(attention)
     try:
-        llama_queue = launch_thread_safe_queue(
+        llama_queue, llama_thread = launch_thread_safe_queue(
             checkpoint_path=str(model_path),
             device=device_str,
             precision=dtype,
@@ -425,6 +425,10 @@ def load_engine(
         precision=dtype,
         compile=compile_model,
     )
+    # Store thread so unload_engine() can join it and guarantee the worker
+    # (which holds model tensors in its closure) has fully exited before we
+    # load a new model — prevents both models sitting in RAM simultaneously.
+    engine._llama_thread = llama_thread
 
     logger.info(f"Fish S2 engine ready (attention={attention}).")
     return engine

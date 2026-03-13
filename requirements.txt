@@ -1,7 +1,7 @@
 # Fish Audio S2 - ComfyUI custom nodes
 #
 # fish-speech is bundled in fish_speech_src/
-# auto-gptq is bundled in auto_gptq_src/
+# GPTQ support requires: pip install gptqmodel --no-build-isolation (optional, only for s2-pro-w4a16)
 # Only runtime deps are installed here. torch is intentionally excluded.
 #
 # DO NOT add torch/torchaudio here — ComfyUI manages those.

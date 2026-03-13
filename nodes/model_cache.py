@@ -182,8 +182,10 @@ def unload_engine():
     global _cached_engine, _cached_key, _keep_loaded, _offloaded
     if _cached_engine is not None:
         logger.info("Unloading Fish S2 model from memory...")
+        thread = None
         try:
             engine = _cached_engine
+            thread = getattr(engine, "_llama_thread", None)
             if hasattr(engine, "llama_queue"):
                 engine.llama_queue.put(None)  # sentinel to stop thread
         except Exception:
@@ -193,6 +195,13 @@ def unload_engine():
         _cached_key = ()
         _keep_loaded = False
         _offloaded = False
+        # Join the worker thread so its model closure is fully released before
+        # we load a new model — prevents two models sitting in RAM at once.
+        if thread is not None and thread.is_alive():
+            logger.debug("Waiting for LLaMA worker thread to exit...")
+            thread.join(timeout=30)
+            if thread.is_alive():
+                logger.warning("LLaMA worker thread did not exit within 30s — proceeding anyway.")
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
         gc.collect()
