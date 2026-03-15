@@ -133,6 +133,12 @@ pip install -r requirements.txt
 ```
 
 > **Note:** `descript-audio-codec` and `descript-audiotools` are **not** in `requirements.txt` on purpose — they are auto-installed by the node at ComfyUI startup with `--no-deps` to avoid their `protobuf<5` constraint breaking other nodes in shared environments. You do not need to install them manually.
+>
+> If auto-install fails at startup, install them manually **with `--no-deps`** (omitting this flag can break other ComfyUI nodes that need protobuf 5.x):
+> ```bash
+> pip install descript-audio-codec --no-deps
+> pip install "descript-audiotools>=0.7.2" --no-deps
+> ```
 
 </details>
 

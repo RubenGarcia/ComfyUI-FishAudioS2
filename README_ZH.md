@@ -124,6 +124,12 @@ pip install -r requirements.txt
 ```
 
 > **注意：** `descript-audio-codec` 和 `descript-audiotools` **不在** `requirements.txt` 中，这是有意为之 — 节点会在 ComfyUI 启动时以 `--no-deps` 方式自动安装它们，以避免其 `protobuf<5` 约束在共享环境中破坏其他节点。无需手动安装。
+>
+> 如果启动时自动安装失败，请**使用 `--no-deps`** 手动安装（省略此参数可能导致依赖 protobuf 5.x 的其他 ComfyUI 节点出错）：
+> ```bash
+> pip install descript-audio-codec --no-deps
+> pip install "descript-audiotools>=0.7.2" --no-deps
+> ```
 
 </details>
 
