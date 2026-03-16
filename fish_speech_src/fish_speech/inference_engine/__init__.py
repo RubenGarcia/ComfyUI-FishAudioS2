@@ -132,10 +132,9 @@ class TTSInferenceEngine(ReferenceLoader, VQManager):
             else:
                 break
 
-        # Clean up the memory
+        # Release CUDA cached blocks so other ComfyUI nodes can use the VRAM.
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-            gc.collect()
 
         # Edge case: no audio generated
         if len(segments) == 0:

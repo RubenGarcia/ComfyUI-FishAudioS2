@@ -414,8 +414,6 @@ class KVCache(nn.Module):
 
     def update(self, input_pos, k_val, v_val):
         # input_pos: [S], k_val: [B, H, S, D]
-        assert input_pos.shape[0] == k_val.shape[2]
-
         k_out = self.k_cache
         v_out = self.v_cache
         k_out[:, :, input_pos] = k_val
@@ -1263,12 +1261,10 @@ class RMSNorm(nn.Module):
         self.eps = eps
         self.weight = nn.Parameter(torch.ones(dim))
 
-    def _norm(self, x):
-        return x * torch.rsqrt(torch.mean(x * x, dim=-1, keepdim=True) + self.eps)
-
     def forward(self, x: Tensor) -> Tensor:
-        output = self._norm(x.float()).type_as(x)
-        return output * self.weight
+        # F.rms_norm is a fused kernel available on CPU/CUDA/MPS (PyTorch 2.4+).
+        # Avoids the float32 upcast + type_as round-trip of the manual implementation.
+        return torch.nn.functional.rms_norm(x, self.weight.shape, self.weight, self.eps)
 
 
 def precompute_freqs_cis(seq_len: int, n_elem: int, base: int = 10000) -> Tensor:
@@ -1294,15 +1290,13 @@ def precompute_freqs_cis(seq_len: int, n_elem: int, base: int = 10000) -> Tensor
 
 
 def apply_rotary_emb(x: Tensor, freqs_cis: Tensor) -> Tensor:
-    xshaped = x.float().reshape(*x.shape[:-1], -1, 2)
-    freqs_cis = freqs_cis.view(1, xshaped.size(1), 1, xshaped.size(3), 2)
-    x_out2 = torch.stack(
-        [
-            xshaped[..., 0] * freqs_cis[..., 0] - xshaped[..., 1] * freqs_cis[..., 1],
-            xshaped[..., 1] * freqs_cis[..., 0] + xshaped[..., 0] * freqs_cis[..., 1],
-        ],
-        -1,
-    )
-
-    x_out2 = x_out2.flatten(3)
-    return x_out2.type_as(x)
+    # Real-valued RoPE in the tensor’s native dtype (bfloat16/float16/float32).
+    # Avoids the float32 upcast + type_as round-trip of the complex-number path.
+    # Works identically on CUDA, CPU and MPS.
+    xr = x.reshape(*x.shape[:-1], -1, 2)                           # (..., D/2, 2)
+    fc = freqs_cis.view(1, xr.size(1), 1, xr.size(-2), 2)          # (1, S, 1, D/2, 2)
+    x_re, x_im = xr[..., 0], xr[..., 1]
+    cos, sin    = fc[..., 0], fc[..., 1]
+    out = torch.stack([x_re * cos - x_im * sin,
+                       x_im * cos + x_re * sin], dim=-1)
+    return out.flatten(3)

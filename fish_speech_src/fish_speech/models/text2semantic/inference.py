@@ -48,6 +48,65 @@ def multinomial_sample_one_no_sync(probs_sort):
 
 RAS_WIN_SIZE = 10  # window for Repetition Aware Sampling
 RAS_HIGH_TEMP = 1.0
+# Module-level caches
+_VOCAB_ARANGE: dict = {}
+
+def _get_vocab_arange(vocab_size: int, device) -> torch.Tensor:
+    key = (vocab_size, str(device))
+    if key not in _VOCAB_ARANGE:
+        _VOCAB_ARANGE[key] = torch.arange(vocab_size, device=device)
+    return _VOCAB_ARANGE[key]
+
+_cancel_event = None
+try:
+    from nodes.model_cache import cancel_event as _cancel_event
+except Exception:
+    pass
+
+
+# ---------------------------------------------------------------------------
+# Module-level caches — pre-allocated tensors reused across every token step.
+# Keyed by (size, str(device)) so CPU, CUDA and MPS each get their own copy.
+# ---------------------------------------------------------------------------
+_VOCAB_ARANGE: dict = {}
+
+
+def _get_vocab_arange(vocab_size: int, device) -> torch.Tensor:
+    key = (vocab_size, str(device))
+    if key not in _VOCAB_ARANGE:
+        _VOCAB_ARANGE[key] = torch.arange(vocab_size, device=device)
+    return _VOCAB_ARANGE[key]
+
+
+# Optional cancel event — imported once at module load; None outside ComfyUI.
+_cancel_event = None
+try:
+    from nodes.model_cache import cancel_event as _cancel_event
+except Exception:
+    pass
+
+# ---------------------------------------------------------------------------
+# Module-level caches — pre-allocated tensors reused across every token step.
+# Keyed by (size/count, str(device)) so CPU, CUDA, MPS each get their own.
+# ---------------------------------------------------------------------------
+_VOCAB_ARANGE: dict = {}  # vocab_size, device -> arange tensor
+
+
+def _get_vocab_arange(vocab_size: int, device) -> torch.Tensor:
+    """Return a cached arange(vocab_size) on the given device."""
+    key = (vocab_size, str(device))
+    if key not in _VOCAB_ARANGE:
+        _VOCAB_ARANGE[key] = torch.arange(vocab_size, device=device)
+    return _VOCAB_ARANGE[key]
+
+
+# Optional cancel event — set by the ComfyUI node when the user hits interrupt.
+# Imported once at module load; falls back to None outside ComfyUI.
+_cancel_event = None
+try:
+    from nodes.model_cache import cancel_event as _cancel_event
+except Exception:
+    pass
 RAS_HIGH_TOP_P = 0.9
 
 
@@ -60,7 +119,7 @@ def logits_to_probs(
     sorted_logits, sorted_indices = torch.sort(logits, descending=True)
     cum_probs = torch.cumsum(torch.nn.functional.softmax(sorted_logits, dim=-1), dim=-1)
 
-    indices = torch.arange(sorted_logits.shape[-1], device=sorted_logits.device)
+    indices = _get_vocab_arange(sorted_logits.shape[-1], sorted_logits.device)
     top_k_mask = indices >= top_k
     sorted_indices_to_remove = (cum_probs > top_p) | top_k_mask
     sorted_indices_to_remove[0] = False  # 单元素修改问题不大，或者写成 | (indices != 0)
@@ -104,6 +163,8 @@ def decode_one_token_ar(
     audio_masks: torch.Tensor,
     audio_parts: torch.Tensor,
     previous_tokens: Optional[torch.Tensor] = None,
+    high_temp: Optional[torch.Tensor] = None,
+    high_top_p: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     forward_result = model.forward_generate(
         x,
@@ -123,10 +184,12 @@ def decode_one_token_ar(
     )[0]
 
     # RAS: also sample with high temp to use as fallback if token repeats
-    high_temp = torch.tensor(
-        RAS_HIGH_TEMP, device=temperature.device, dtype=temperature.dtype
-    )
-    high_top_p = torch.tensor(RAS_HIGH_TOP_P, device=top_p.device, dtype=top_p.dtype)
+    # high_temp / high_top_p are pre-allocated by decode_n_tokens and passed in;
+    # fall back to creating them here only for the prefill call from generate().
+    if high_temp is None:
+        high_temp = torch.tensor(RAS_HIGH_TEMP, device=temperature.device, dtype=temperature.dtype)
+    if high_top_p is None:
+        high_top_p = torch.tensor(RAS_HIGH_TOP_P, device=top_p.device, dtype=top_p.dtype)
     main_token_high = sample(
         biased_logits, temperature=high_temp, top_p=high_top_p, top_k=top_k
     )[0]
@@ -194,32 +257,32 @@ def decode_n_tokens(
     audio_parts: torch.Tensor,
     decode_one_token=decode_one_token_ar,
 ):
-    # Rolling window for RAS (Repetition Aware Sampling)
-    previous_tokens = torch.zeros(
-        (model.config.num_codebooks + 1, RAS_WIN_SIZE),
-        dtype=torch.int,
-        device=cur_token.device,
-    )
-    # Accumulate all generated tokens (the actual output)
-    new_tokens = []
-
-    # [MODIFIED] Pre-fetch ID for efficiency loop
+    codebook_dim = model.config.num_codebooks + 1
     im_end_id = model.tokenizer.get_token_id(IM_END_TOKEN)
 
-    # Import cancel event from node cache if available.
-    _cancel_event = None
-    try:
-        from nodes.model_cache import cancel_event as _cancel_event
-    except Exception:
-        pass
+    # Circular buffer for RAS window — avoids roll() allocation each token.
+    previous_tokens = torch.zeros(
+        (codebook_dim, RAS_WIN_SIZE), dtype=torch.int, device=cur_token.device,
+    )
+    ras_write_idx = 0
 
-    for i in tqdm(range(num_new_tokens)):
-        # Check cancel flag — set by main thread when user hits cancel.
-        if _cancel_event is not None and _cancel_event.is_set():
-            logger.info("Generation cancelled by user — stopping token loop.")
-            break
+    # Pre-allocate RAS scalar tensors once — avoids two device allocs per token.
+    ras_high_temp = torch.full_like(temperature, RAS_HIGH_TEMP)
+    ras_high_top_p = torch.full_like(top_p, RAS_HIGH_TOP_P)
 
-        with sdpa_kernel(SDPBackend.MATH):
+    # Pre-allocate output buffer — avoids list-append + torch.cat double copy.
+    out_buf = torch.empty(
+        (codebook_dim, num_new_tokens), dtype=torch.int, device=cur_token.device,
+    )
+    count = 0
+
+    # Move sdpa_kernel outside the loop — SDPBackend.MATH is valid on CUDA/CPU/MPS.
+    with sdpa_kernel(SDPBackend.MATH):
+        for i in tqdm(range(num_new_tokens)):
+            if _cancel_event is not None and _cancel_event.is_set():
+                logger.info("Generation cancelled by user — stopping token loop.")
+                break
+
             next_token = decode_one_token(
                 model=model,
                 x=cur_token,
@@ -231,28 +294,28 @@ def decode_n_tokens(
                 semantic_logit_bias=semantic_logit_bias,
                 audio_masks=audio_masks,
                 audio_parts=audio_parts,
-            ).clone()
+                high_temp=ras_high_temp,
+                high_top_p=ras_high_top_p,
+            )
 
-        input_pos += 1
-        cur_token = next_token.view(1, model.config.num_codebooks + 1, -1)
-        # Roll RAS window left and insert new token at end
-        previous_tokens = previous_tokens.roll(-1, dims=1)
-        previous_tokens[:, -1] = next_token.view(model.config.num_codebooks + 1, -1)[
-            :, 0
-        ]
-        new_tokens.append(next_token)
+            input_pos += 1
+            out_buf[:, count] = next_token[:, 0]
+            count += 1
+            cur_token = next_token.view(1, codebook_dim, -1)
 
-        if cur_token[0, 0, -1] == im_end_id:
-            break
+            # Circular-buffer RAS window — no roll() allocation.
+            previous_tokens[:, ras_write_idx] = next_token[:, 0]
+            ras_write_idx = (ras_write_idx + 1) % RAS_WIN_SIZE
+
+            if cur_token[0, 0, -1] == im_end_id:
+                break
 
     del cur_token
 
-    if not new_tokens:
-        # Cancelled before any tokens were generated — return a minimal tensor.
-        return torch.zeros((model.config.num_codebooks + 1, 0),
-                           dtype=torch.int, device=cur_token.device if False else input_pos.device)
+    if count == 0:
+        return torch.zeros((codebook_dim, 0), dtype=torch.int, device=input_pos.device)
 
-    return torch.cat(new_tokens, dim=1)
+    return out_buf[:, :count]
 
 
 @torch.no_grad()
@@ -291,9 +354,7 @@ def generate(
         max_new_tokens = T_new - T
 
     device = prompt.device
-    dtype = next(
-        model.parameters()
-    ).dtype  # model weight dtype (bfloat16), NOT prompt dtype (int32)
+    dtype = next(model.parameters()).dtype  # model weight dtype — cache once, used below
 
     # Allocate KV cache sized to this generation's actual needs.
     # setup_caches() early-exits when the existing cache is already large enough,
@@ -305,7 +366,7 @@ def generate(
         model.setup_caches(
             max_batch_size=1,
             max_seq_len=T_new,
-            dtype=next(model.parameters()).dtype,
+            dtype=dtype,
         )
 
     codebook_dim = 1 + model.config.num_codebooks
@@ -633,9 +694,6 @@ def generate_long(
     logger.info(f"Split into {len(turns)} turns, grouped into {len(batches)} batches")
 
     for sample_idx in range(num_samples):
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-
         t0 = time.perf_counter()
 
         # Deep copy base conversation for this sample
@@ -713,9 +771,6 @@ def generate_long(
 
             if sample_idx == 0 and batch_idx == 0 and compile:
                 logger.info(f"Compilation time: {time.perf_counter() - t0:.2f} seconds")
-
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
 
             t_batch = time.perf_counter() - t0
             tokens_generated = y.size(1) - prompt_length
