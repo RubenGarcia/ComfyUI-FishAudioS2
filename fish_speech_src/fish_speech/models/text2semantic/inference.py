@@ -48,6 +48,7 @@ def multinomial_sample_one_no_sync(probs_sort):
 
 RAS_WIN_SIZE = 10  # window for Repetition Aware Sampling
 RAS_HIGH_TEMP = 1.0
+RAS_HIGH_TOP_P = 0.9
 # Module-level caches
 _VOCAB_ARANGE: dict = {}
 
@@ -78,13 +79,42 @@ def _get_vocab_arange(vocab_size: int, device) -> torch.Tensor:
     return _VOCAB_ARANGE[key]
 
 
-# Optional cancel event — imported once at module load; None outside ComfyUI.
-_cancel_event = None
-try:
-    from nodes.model_cache import cancel_event as _cancel_event
-except Exception:
-    pass
+def _deepcopy_share_tensors(obj):
+    """deepcopy the conversation structure but share all Tensor objects.
 
+    VQPart.codes tensors (reference audio, previously generated audio) are
+    read-only during generation — deep-copying them wastes memory and time.
+    We pre-populate deepcopy's memo dict with all tensors so they are reused
+    rather than duplicated.  Everything else (lists, Messages, strings, etc.)
+    is still properly deep-copied so mutations to the copy do not affect the
+    original.
+    """
+    memo: dict = {}
+
+    def _register(o, seen: set | None = None) -> None:
+        if seen is None:
+            seen = set()
+        oid = id(o)
+        if oid in seen:
+            return
+        seen.add(oid)
+        if isinstance(o, torch.Tensor):
+            memo[oid] = o          # share this tensor, do not copy it
+        elif isinstance(o, dict):
+            for v in o.values():
+                _register(v, seen)
+        elif isinstance(o, (list, tuple)):
+            for item in o:
+                _register(item, seen)
+        elif hasattr(o, "__dict__"):
+            for v in o.__dict__.values():
+                _register(v, seen)
+
+    _register(obj)
+    return deepcopy(obj, memo)
+
+
+# Optional cancel event — imported once at module load; None outside ComfyUI.
 # ---------------------------------------------------------------------------
 # Module-level caches — pre-allocated tensors reused across every token step.
 # Keyed by (size/count, str(device)) so CPU, CUDA, MPS each get their own.
@@ -101,13 +131,7 @@ def _get_vocab_arange(vocab_size: int, device) -> torch.Tensor:
 
 
 # Optional cancel event — set by the ComfyUI node when the user hits interrupt.
-# Imported once at module load; falls back to None outside ComfyUI.
-_cancel_event = None
-try:
-    from nodes.model_cache import cancel_event as _cancel_event
-except Exception:
-    pass
-RAS_HIGH_TOP_P = 0.9
+# Imported once at module load; falls back to None outside ComfyUI.RAS_HIGH_TOP_P = 0.9
 
 
 def logits_to_probs(
@@ -206,42 +230,29 @@ def decode_one_token_ar(
             should_use_high, main_token_high, main_token_normal
         )
 
-    codebooks = [main_token_normal]
+    # Pre-alloc output buffer (Finding 3) -- one allocation instead of list + stack.
+    # Shape: (codebook_dim, 1) matching the original codebooks.T return value.
+    codebook_dim = 1 + model.config.num_codebooks
+    codebook_out = main_token_normal.new_empty(codebook_dim, 1)
+    codebook_out[0] = main_token_normal
 
-    input_pos = torch.tensor([0], device=hidden_states.device, dtype=torch.long)
-    model.forward_generate_fast(hidden_states, input_pos)
+    # Use pre-allocated position index tensor (Finding 2) -- no torch.tensor([0]) alloc.
+    model.forward_generate_fast(hidden_states, model._codebook_pos[0])
 
-    a = codebooks[0] - model.config.semantic_begin_id
+    a = main_token_normal - model.config.semantic_begin_id
     a = torch.clamp(a, min=0, max=model.config.codebook_size - 1)
-
     hidden_states = model.fast_embeddings(a)
-    codebooks.append(a)
+    codebook_out[1] = a
 
     for codebook_idx in range(1, model.config.num_codebooks):
-        input_pos = torch.tensor(
-            [codebook_idx], device=hidden_states.device, dtype=torch.long
-        )
-        logits = model.forward_generate_fast(hidden_states, input_pos)
-
-        short_logits = logits  # DualAR predicts config.codebook_size number of tokens
-
-        # Convert logits to probs (no constrain for fast codebooks)
-        a = sample(
-            short_logits,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-        )[0]
-
+        logits = model.forward_generate_fast(hidden_states, model._codebook_pos[codebook_idx])
+        a = sample(logits, temperature=temperature, top_p=top_p, top_k=top_k)[0]
         hidden_states = model.fast_embeddings(a)
-        codebooks.append(a)
+        codebook_out[codebook_idx + 1] = a
 
-    codebooks = torch.stack(codebooks, dim=1)
-
-    # Only delete references, let Python GC handle cleanup
     del logits, hidden_states, forward_result
 
-    return codebooks.T
+    return codebook_out
 
 
 def decode_n_tokens(
@@ -464,6 +475,12 @@ def init_model(checkpoint_path, device, precision, compile=False, bnb_mode=None)
     model.fixed_temperature = torch.tensor(0.7, device=device, dtype=torch.float)
     model.fixed_top_p = torch.tensor(0.7, device=device, dtype=torch.float)
     model.fixed_repetition_penalty = torch.tensor(1.5, device=device, dtype=torch.float)
+    # Pre-allocated position index tensors for the fast codebook decoder loop
+    # (Finding 2) -- avoids torch.tensor([i]) allocations inside the compiled fn.
+    model._codebook_pos = [
+        torch.tensor([i], device=device, dtype=torch.long)
+        for i in range(model.config.num_codebooks)
+    ]
 
     if compile:
         logger.info("Compiling function...")
@@ -696,8 +713,8 @@ def generate_long(
     for sample_idx in range(num_samples):
         t0 = time.perf_counter()
 
-        # Deep copy base conversation for this sample
-        conversation = deepcopy(base_conversation)
+        # Copy conversation structure; tensors (VQPart.codes) are shared not copied.
+        conversation = _deepcopy_share_tensors(base_conversation)
 
         for batch_idx, batch_text in enumerate(batches):
             logger.info(
@@ -717,8 +734,8 @@ def generate_long(
                 )
             )
 
-            # Deep copy for generation (don't pollute original conversation)
-            conversation_gen = deepcopy(conversation)
+            # Copy for generation; tensors shared to avoid redundant data copies.
+            conversation_gen = _deepcopy_share_tensors(conversation)
             conversation_gen.append(
                 Message(
                     role="assistant",
@@ -862,6 +879,9 @@ def launch_thread_safe_queue(
                     for attr in ("fixed_temperature", "fixed_top_p", "fixed_repetition_penalty"):
                         if hasattr(model, attr):
                             setattr(model, attr, getattr(model, attr).to(target_device))
+                    # _codebook_pos is a plain list — not moved by model.to()
+                    if hasattr(model, "_codebook_pos"):
+                        model._codebook_pos = [t.to(target_device) for t in model._codebook_pos]
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                     response_queue.put(

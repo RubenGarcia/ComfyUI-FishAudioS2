@@ -49,8 +49,9 @@
 ## 💻 系统要求
 
 - **GPU：** NVIDIA 显卡，完整模型需 **24GB+ 显存**（RTX 3090/4090、A5000 等）
-  - **16GB+ 显存** 可使用 **BNB NF4 4位实时量化**（较慢，约 5 it/s）
-  - **18GB+ 显存** 可使用 **BNB INT8 实时量化**（较慢，约 5 it/s）
+  - **16GB+ 显存** 可使用 **BNB NF4 4位实时量化**（约 10-11 it/s）
+  - **CPU/MPS：** 约 1.5-2 秒/token（实验性）
+  - **18GB+ 显存** 可使用 **BNB INT8 实时量化**（约 10-11 it/s）
   - **20GB+ 显存** 可使用 **FP8 量化模型**（`s2-pro-fp8`，约 11 it/s，需要 RTX 4090/5090 或 Ada/Blackwell 显卡）
 - **CPU/MPS：** 支持但速度明显较慢
 - **Python：** 3.10+
@@ -65,7 +66,7 @@
 > pip install bitsandbytes
 > ```
 > 
-> **注意：** 这些选项**明显较慢**（约 5 it/s，而 FP8 约 11 it/s），但可在任何 NVIDIA GPU 上运行，无需特殊硬件要求。
+> **注意：** BNB 选项约 10-11 it/s，与 FP8 的约 11 it/s 相当。可在任何 NVIDIA GPU 上运行，无需特殊硬件要求。
 
 ---
 
@@ -73,10 +74,10 @@
 
 | 模型 | 显存 | 速度 | 描述 |
 |------|------|------|------|
-| **s2-pro** | ~24GB | ~10 it/s | 完整精度（40亿参数）— 最佳质量，开箱即用 |
-| **s2-pro-fp8** | ~20GB | ~11 it/s | FP8 逐行缩放量化 — **推荐用于 20GB+ Ada/Blackwell 显卡**（RTX 4090/5090），无需额外依赖 |
-| **BNB INT8** | ~18GB | ~5 it/s | 通过 bitsandbytes 实时 INT8 量化 — 使用 s2-pro 模型，需要 bitsandbytes |
-| **BNB NF4** | ~16GB | ~5 it/s | 通过 bitsandbytes 实时 4位 NF4 量化 — 使用 s2-pro 模型，需要 bitsandbytes |
+| **s2-pro** | ~24GB | ~15-17 it/s | 完整精度（40亿参数）— 最佳质量，开箱即用。基础 15 it/s，SageAttention 可达 17 it/s |
+| **s2-pro-fp8** | ~20GB | ~15 it/s | FP8 逐行缩放量化 — **推荐用于 20GB+ Ada/Blackwell 显卡**（RTX 4090/5090），无需额外依赖 |
+| **BNB INT8** | ~18GB | ~10-11 it/s | 通过 bitsandbytes 实时 INT8 量化 — 使用 s2-pro 模型，需要 bitsandbytes |
+| **BNB NF4** | ~16GB | ~10-11 it/s | 通过 bitsandbytes 实时 4位 NF4 量化 — 使用 s2-pro 模型，需要 bitsandbytes |
 
 首次使用时自动从 HuggingFace 下载模型：
 - [fishaudio/s2-pro](https://huggingface.co/fishaudio/s2-pro) — 完整模型

@@ -58,9 +58,10 @@ This ComfyUI wrapper provides native node-based integration with:
 ##  Requirements
 
 - **GPU:** NVIDIA GPU with **24GB+ VRAM** for full model (RTX 3090/4090, A5000, etc.)
-  - **16GB+ VRAM** works with **BNB NF4 4-bit on-the-fly quantization** (slower, ~5 it/s)
-  - **18GB+ VRAM** works with **BNB INT8 on-the-fly quantization** (slower, ~5 it/s)
-  - **20GB+ VRAM** works with the **FP8 quantized model** (`s2-pro-fp8`, ~11 it/s, requires RTX 4090/5090 or Ada/Blackwell GPU)
+  - **16GB+ VRAM** works with **BNB NF4 4-bit on-the-fly quantization** (~10-11 it/s)
+  - **CPU/MPS:** ~1.5-2 seconds per token (experimental)
+  - **18GB+ VRAM** works with **BNB INT8 on-the-fly quantization** (~10-11 it/s)
+  - **20GB+ VRAM** works with the **FP8 quantized model** (`s2-pro-fp8`, ~15 it/s, requires RTX 4090/5090 or Ada/Blackwell GPU)
 - **CPU/MPS:** ⚠️ EXPERIMENTAL
 - **Python:** 3.10+
 - **CUDA:** 11.8+ (for GPU inference)
@@ -74,7 +75,7 @@ This ComfyUI wrapper provides native node-based integration with:
 > pip install bitsandbytes
 > ```
 > 
-> **Note:** These options are **significantly slower** (~5 it/s vs ~11 it/s for FP8) but work on any NVIDIA GPU without special hardware requirements.
+> **Note:** BNB options run at ~10-11 it/s vs ~15 it/s for FP8. They work on any NVIDIA GPU without special hardware requirements.
 
 ---
 
@@ -82,10 +83,10 @@ This ComfyUI wrapper provides native node-based integration with:
 
 | Model | VRAM | Speed | Description |
 |-------|------|-------|-------------|
-| **s2-pro** | ~24GB | ~10 it/s | Full precision (4B params) — best quality, works out of the box |
-| **s2-pro-fp8** | ~20GB | ~11 it/s | FP8 weight-only quantized — **recommended for 20GB+ Ada/Blackwell GPUs** (RTX 4090/5090), no extra dependencies |
-| **BNB INT8** | ~18GB | ~5 it/s | On-the-fly INT8 quantization via bitsandbytes — uses s2-pro model, requires bitsandbytes |
-| **BNB NF4** | ~16GB | ~5 it/s | On-the-fly 4-bit NF4 quantization via bitsandbytes — uses s2-pro model, requires bitsandbytes |
+| **s2-pro** | ~24GB | ~15-17 it/s | Full precision (4B params) — best quality, works out of the box. 15 it/s baseline, 17 it/s with SageAttention |
+| **s2-pro-fp8** | ~20GB | ~15 it/s | FP8 weight-only quantized — **recommended for 20GB+ Ada/Blackwell GPUs** (RTX 4090/5090), no extra dependencies |
+| **BNB INT8** | ~18GB | ~10-11 it/s | On-the-fly INT8 quantization via bitsandbytes — uses s2-pro model, requires bitsandbytes |
+| **BNB NF4** | ~16GB | ~10-11 it/s | On-the-fly 4-bit NF4 quantization via bitsandbytes — uses s2-pro model, requires bitsandbytes |
 
 Models are auto-downloaded from HuggingFace on first use:
 - [fishaudio/s2-pro](https://huggingface.co/fishaudio/s2-pro) — full model
