@@ -9,7 +9,7 @@ Required pip packages are auto-installed on startup.
 Model weights are auto-downloaded from HuggingFace on first inference.
 """
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 
 import importlib
 import logging
@@ -75,6 +75,8 @@ def _pip_install(spec: str) -> bool:
             cmd,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=300,
         )
         if result.returncode == 0:
