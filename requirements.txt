@@ -12,7 +12,7 @@ soundfile
 loguru
 transformers>=4.45.2
 einops>=0.7.0
-einx[torch]==0.2.2
+einx==0.2.2
 librosa>=0.10.1
 rich>=13.5.3
 ormsgpack
