@@ -9,7 +9,7 @@ Required pip packages are auto-installed on startup.
 Model weights are auto-downloaded from HuggingFace on first inference.
 """
 
-__version__ = "0.3.3"
+__version__ = "0.3.4"
 
 import importlib
 import logging
@@ -198,18 +198,24 @@ def _ensure_dependencies() -> bool:
     for import_name, pip_spec in _REQUIRED:
         try:
             __import__(import_name)
-        except ImportError:
+        except ImportError as e:
             logger.warning(
-                f"'{import_name}' not found — auto-installing from: {pip_spec}"
+                f"'{import_name}' not found — auto-installing from: {pip_spec}\n"
+                f"  ImportError: {e}\n"
+                f"  sys.path: {sys.path}\n"
+                f"  sys.modules entry: {sys.modules.get(import_name, '<not in sys.modules>')}"
             )
             if _pip_install(pip_spec):
                 any_installed = True
                 try:
                     __import__(import_name)
-                except ImportError:
+                except ImportError as e2:
                     logger.error(
                         f"Installed '{pip_spec}' but '{import_name}' still "
-                        "cannot be imported. Please restart ComfyUI."
+                        f"cannot be imported. Please restart ComfyUI.\n"
+                        f"  ImportError: {e2}\n"
+                        f"  sys.path: {sys.path}\n"
+                        f"  sys.modules entry: {sys.modules.get(import_name, '<not in sys.modules>')}"
                     )
                     failed_specs.append(pip_spec)
                     all_ok = False
