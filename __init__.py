@@ -9,7 +9,7 @@ Required pip packages are auto-installed on startup.
 Model weights are auto-downloaded from HuggingFace on first inference.
 """
 
-__version__ = "0.3.5"
+__version__ = "0.3.6"
 
 import importlib
 import logging
@@ -118,7 +118,24 @@ _REQUIRED = [
     ("natsort",         "natsort>=8.4.0"),
     ("loralib",         "loralib>=0.1.2"),
     ("hydra",           "hydra-core>=1.3.2"),
-    ("einx",            "einx==0.2.2"),
+    # einx is an optional dep used only by certain attention backends.
+    # It is NOT hard-required for TTS inference — skip if it can't import
+    # (e.g. jax namespace conflicts in some environments).
+    # ("einx",          "einx==0.2.2"),
+    # These are direct runtime imports of dac/audiotools (not training deps).
+    # Must be installed before dac/audiotools even with --no-deps.
+    #   flatten_dict:        audiotools/core/util.py
+    #   importlib_resources: audiotools/core/playback.py
+    #   julius:              audiotools/core/dsp.py, loudness.py
+    #   randomname:          audiotools/ml/experiment.py
+    #   ffmpy:               audiotools/core/ffmpeg.py (via audio_signal.py FFMPEGMixin)
+    #   argbind:             dac/utils/__init__.py (imported by dac/__init__.py)
+    ("flatten_dict",        "flatten_dict"),
+    ("importlib_resources", "importlib_resources"),
+    ("julius",              "julius"),
+    ("randomname",          "randomname"),
+    ("ffmpy",               "ffmpy"),
+    ("argbind",             "argbind"),
     # Install dac/audiotools with --no-deps to avoid their protobuf<5 upper-bound
     # constraint being enforced into the environment. All of their runtime deps
     # that matter for inference (numpy, torch, einops, etc.) are already covered

@@ -106,15 +106,32 @@ class ReferenceLoader:
 
         return prompt_tokens, prompt_texts
 
-    def load_audio(self, reference_audio: bytes | str, sr: int):
+    def load_audio(self, reference_audio, sr: int):
         """
         Load the audio data from a file or bytes.
         """
-        if len(reference_audio) > 255 or not Path(reference_audio).exists():
-            audio_data = reference_audio
-            reference_audio = io.BytesIO(audio_data)
+        buf = None
+        if isinstance(reference_audio, bytes):
+            buf = io.BytesIO(reference_audio)
+        elif isinstance(reference_audio, str) and (
+            len(reference_audio) > 255 or not Path(reference_audio).exists()
+        ):
+            buf = io.BytesIO(reference_audio.encode())
 
-        waveform, original_sr = torchaudio.load(reference_audio, backend=self.backend)
+        if buf is not None:
+            # torchcodec (torchaudio >= 2.9) does not support BytesIO objects;
+            # use soundfile directly to avoid MockDecoder errors.
+            try:
+                import soundfile as sf
+                buf.seek(0)
+                audio_data_np, original_sr = sf.read(buf, dtype="float32", always_2d=True)
+                waveform = torch.from_numpy(audio_data_np.T)  # (channels, samples)
+            except Exception:
+                # fallback: try torchaudio with soundfile backend
+                buf.seek(0)
+                waveform, original_sr = torchaudio.load(buf, backend="soundfile")
+        else:
+            waveform, original_sr = torchaudio.load(reference_audio, backend=self.backend)
 
         if waveform.shape[0] > 1:
             waveform = torch.mean(waveform, dim=0, keepdim=True)

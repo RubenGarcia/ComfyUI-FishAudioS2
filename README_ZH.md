@@ -89,8 +89,9 @@
 
 | | 独立环境 | 共享 ComfyUI 环境 | FP8（RTX 4090/5090）|
 |---|---|---|---|
-| **Python** | 3.10 – 3.12 | 3.10 – 3.12 | 3.10 – 3.12 |
+| **Python** | 3.10 – 3.13 | 3.10 – 3.13 | 3.10 – 3.13 |
 | **PyTorch** | 2.x + CUDA 11.8+ | 由 ComfyUI 管理 | 2.x + CUDA 11.8+ |
+| **torchaudio** | 任意（支持 2.9+） | 任意（支持 2.9+） | 任意（支持 2.9+） |
 | **protobuf** | 任意（不会被修改） | 任意（不会被修改） | 任意（不会被修改） |
 | **descript-audio-codec** | 1.0.0（`--no-deps`） | 1.0.0（`--no-deps`） | 1.0.0（`--no-deps`） |
 | **descript-audiotools** | 0.7.2（`--no-deps`） | 0.7.2（`--no-deps`） | 0.7.2（`--no-deps`） |
@@ -100,6 +101,8 @@
 | **GPU** | 任意 NVIDIA | 任意 NVIDIA | RTX 4090/5090 或 Ada/Blackwell |
 
 > 自 v0.3.0 起，`descript-audio-codec`、`descript-audiotools` 和 `protobuf` 不再通过 `pip install -r requirements.txt` 安装或修改。两个音频包会在首次启动时以 `--no-deps` 方式自动安装，不会影响环境中的 protobuf 版本。
+>
+> 自 v0.3.6 起，`dac`/`audiotools` 所有运行时传递依赖（`flatten-dict`、`importlib-resources`、`julius`、`randomname`、`ffmpy`、`argbind`）也会自动安装，修复了在全新可移植环境下首次安装失败的问题。
 
 ---
 
@@ -346,12 +349,15 @@ pip install descript-audio-codec --no-deps
 pip install "descript-audiotools>=0.7.2" --no-deps
 ```
 
-### 缺少依赖？
+### 节点无法加载 / 缺少依赖？
 
-安装所有依赖：
+所有必需包会在首次启动时自动安装。如果节点加载失败，**重启一次 ComfyUI** — 安装程序在节点注册前运行。重启后仍然失败，请手动安装：
+
 ```bash
-cd ComfyUI/custom_nodes/ComfyUI-FishAudioS2
 pip install -r requirements.txt
+pip install flatten-dict importlib-resources julius randomname ffmpy argbind
+pip install descript-audio-codec --no-deps
+pip install "descript-audiotools>=0.7.2" --no-deps
 ```
 
 常见缺少的包：
@@ -360,6 +366,14 @@ pip install -r requirements.txt
 > [!CAUTION]
 > **永远不要运行 `pip install git+https://github.com/fishaudio/fish-speech`**
 > fish-speech 已内置于本节点中。运行该命令会降级 PyTorch 及其他包，导致 ComfyUI 环境损坏。启动时的依赖报错重启一次即可自动修复。
+
+### torchaudio / MockDecoder 错误（PyTorch 2.9+）？
+
+如果看到 `RuntimeError: Failed to create AudioDecoder ... MockDecoder() takes no arguments`，这是由 torchaudio 2.9+ 切换到不支持内存音频缓冲区的 `torchcodec` 后端导致的。已在 v0.3.6 修复 — 执行 git pull 获取更新。
+
+### `fish_speech` 包冲突？
+
+如果看到 `ImportError: cannot import name 'AUDIO_EXTENSIONS' from 'fish_speech.utils.file'` 且路径指向其他自定义节点目录（如 `comfyui-mixlab-nodes`），说明另一个节点有自己的 `fish_speech` 文件夹，通过 `sys.path` 与本节点冲突。请禁用或删除冲突节点。**不要** 通过 pip 安装 `fish_speech` — 它已内置于本节点中。
 
 ### 显存不足？
 

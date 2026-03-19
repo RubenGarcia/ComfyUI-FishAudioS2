@@ -98,8 +98,9 @@ Models are auto-downloaded from HuggingFace on first use:
 
 | | Standalone env | Shared ComfyUI env | FP8 (RTX 4090/5090) |
 |---|---|---|---|
-| **Python** | 3.10 – 3.12 | 3.10 – 3.12 | 3.10 – 3.12 |
+| **Python** | 3.10 – 3.13 | 3.10 – 3.13 | 3.10 – 3.13 |
 | **PyTorch** | 2.x + CUDA 11.8+ | managed by ComfyUI | 2.x + CUDA 11.8+ |
+| **torchaudio** | any (2.9+ supported) | any (2.9+ supported) | any (2.9+ supported) |
 | **protobuf** | any (not touched) | any (not touched) | any (not touched) |
 | **descript-audio-codec** | 1.0.0 (`--no-deps`) | 1.0.0 (`--no-deps`) | 1.0.0 (`--no-deps`) |
 | **descript-audiotools** | 0.7.2 (`--no-deps`) | 0.7.2 (`--no-deps`) | 0.7.2 (`--no-deps`) |
@@ -109,6 +110,8 @@ Models are auto-downloaded from HuggingFace on first use:
 | **GPU** | any NVIDIA | any NVIDIA | RTX 4090/5090 or Ada/Blackwell |
 
 > As of v0.3.0, `descript-audio-codec`, `descript-audiotools`, and `protobuf` are never installed or modified by `pip install -r requirements.txt`. The two audio packages are auto-installed at first startup with `--no-deps`, leaving your environment's protobuf version untouched.
+>
+> As of v0.3.6, all transitive runtime dependencies of `dac`/`audiotools` (`flatten-dict`, `importlib-resources`, `julius`, `randomname`, `ffmpy`, `argbind`) are also auto-installed, fixing fresh-install failures on clean portable environments.
 
 ---
 
@@ -353,12 +356,15 @@ pip install descript-audio-codec --no-deps
 pip install "descript-audiotools>=0.7.2" --no-deps
 ```
 
-### Missing Dependencies?
+### Nodes Not Loading / Missing Dependencies?
 
-Install all dependencies:
+All required packages are auto-installed on first startup. If the node fails to load, **restart ComfyUI once** — the installer runs before nodes register. If it still fails after a restart, install manually:
+
 ```bash
-cd ComfyUI/custom_nodes/ComfyUI-FishAudioS2
 pip install -r requirements.txt
+pip install flatten-dict importlib-resources julius randomname ffmpy argbind
+pip install descript-audio-codec --no-deps
+pip install "descript-audiotools>=0.7.2" --no-deps
 ```
 
 Common missing packages:
@@ -367,6 +373,14 @@ Common missing packages:
 > [!CAUTION]
 > **Never run `pip install git+https://github.com/fishaudio/fish-speech`**
 > fish-speech is bundled inside the node. Running that command will downgrade PyTorch and other packages, breaking your ComfyUI environment. Dependency errors on startup fix themselves after one restart.
+
+### torchaudio / MockDecoder Error (PyTorch 2.9+)?
+
+If you see `RuntimeError: Failed to create AudioDecoder ... MockDecoder() takes no arguments`, this is caused by torchaudio 2.9+ switching to the `torchcodec` backend which does not support in-memory audio buffers. Fixed in v0.3.6 — git pull to get the update.
+
+### Conflicting `fish_speech` Package?
+
+If you see `ImportError: cannot import name 'AUDIO_EXTENSIONS' from 'fish_speech.utils.file'` pointing to another custom node's directory (e.g. `comfyui-mixlab-nodes`), a different node has its own `fish_speech` folder that conflicts with ours via `sys.path`. Disable the conflicting node or remove it. Do **not** pip-install `fish_speech` — it is bundled inside this node.
 
 ### Out of Memory?
 
