@@ -96,6 +96,8 @@ Models are auto-downloaded from HuggingFace on first use:
 
 ## Tested Configurations
 
+**Tested and working v0.4.0 with PyTorch 2.10+cu13.**
+
 | | Standalone env | Shared ComfyUI env | FP8 (RTX 4090/5090) |
 |---|---|---|---|
 | **Python** | 3.10 – 3.13 | 3.10 – 3.13 | 3.10 – 3.13 |

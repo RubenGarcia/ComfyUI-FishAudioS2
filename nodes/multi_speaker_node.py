@@ -688,8 +688,9 @@ else:
 # ---------------------------------------------------------------------------
 
 def _get_engine(model_path, device, precision, attention, compile_model, keep_loaded=False, offload_to_cpu=False):
-    from .loader import resolve_device
-    key = get_cache_key(model_path, device, precision, attention, model_path)
+    from .loader import resolve_device, _strip_auto_download_suffix
+    model_name = _strip_auto_download_suffix(model_path)
+    key = get_cache_key(model_path, device, precision, attention, model_name)
     cached_engine, cached_key = get_cached_engine()
     if cached_engine is not None and cached_key == key:
         if is_offloaded():
