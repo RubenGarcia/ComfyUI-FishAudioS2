@@ -1,7 +1,7 @@
 [project]
 name = "ComfyUI-fish-audio-s2"
 description = "ComfyUI custom nodes for Fish Audio S2-Pro TTS | voice clone, multi-speaker, and text-to-speech"
-version = "0.3.7"
+version = "0.3.9"
 license = {file = "LICENSE"}
 dependencies = [
     "numpy",
@@ -33,6 +33,7 @@ dependencies = [
     "randomname",
     "ffmpy",
     "argbind",
+    "tensorboard",
     # descript-audio-codec and descript-audiotools are intentionally excluded.
     # They MUST be installed with --no-deps to avoid their protobuf<5 constraint
     # breaking shared ComfyUI environments. __init__.py handles this automatically.

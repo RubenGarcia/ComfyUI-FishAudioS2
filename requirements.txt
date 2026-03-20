@@ -38,6 +38,7 @@ julius
 randomname
 ffmpy
 argbind
+tensorboard
 
 # descript-audio-codec and descript-audiotools MUST be installed with --no-deps.
 # They carry a protobuf<5 upper-bound that conflicts with tensorflow, mediapipe,

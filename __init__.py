@@ -9,7 +9,7 @@ Required pip packages are auto-installed on startup.
 Model weights are auto-downloaded from HuggingFace on first inference.
 """
 
-__version__ = "0.3.7"
+__version__ = "0.3.9"
 
 import importlib
 import logging
@@ -130,12 +130,14 @@ _REQUIRED = [
     #   randomname:          audiotools/ml/experiment.py
     #   ffmpy:               audiotools/core/ffmpeg.py (via audio_signal.py FFMPEGMixin)
     #   argbind:             dac/utils/__init__.py (imported by dac/__init__.py)
-    ("flatten_dict",        "flatten_dict"),
-    ("importlib_resources", "importlib_resources"),
+    #   tensorboard:         audiotools/ml/__init__.py (imported at module load)
+    ("flatten_dict",        "flatten-dict"),
+    ("importlib_resources", "importlib-resources"),
     ("julius",              "julius"),
     ("randomname",          "randomname"),
     ("ffmpy",               "ffmpy"),
     ("argbind",             "argbind"),
+    ("tensorboard",         "tensorboard"),
     # Install dac/audiotools with --no-deps to avoid their protobuf<5 upper-bound
     # constraint being enforced into the environment. All of their runtime deps
     # that matter for inference (numpy, torch, einops, etc.) are already covered
