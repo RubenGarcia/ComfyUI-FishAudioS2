@@ -226,6 +226,7 @@ Voice cloning from reference audio.
 - All inputs from Fish S2 TTS, plus:
 - `reference_audio`: Reference audio to clone (10-30 seconds recommended)
 - `reference_text` (optional): Transcript of reference audio for improved accuracy
+  > **Note:** [Whisper (MTB)](https://github.com/mel Mass/mtb_nodes) does **not** work with newer `transformers` versions and will throw an error. Manually write the reference text until the MTB maintainer merges the fix PR.
 
 **Outputs:**
 - `audio`: Generated speech in cloned voice (AUDIO)
@@ -241,6 +242,7 @@ Multi-speaker conversation synthesis.
 - `num_speakers`: Number of speakers (2-10)
 - `speaker_N_audio`: Reference audio for speaker N
 - `speaker_N_ref_text`: Optional transcript for speaker N
+  > **Note:** [Whisper (MTB)](https://github.com/melMass/mtb_nodes) does **not** work with newer `transformers` versions and will throw an error. Manually write the reference text until the MTB maintainer merges the fix PR.
 
 **Text Format:**
 ```

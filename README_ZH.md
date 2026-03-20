@@ -217,6 +217,7 @@ pip install -r requirements.txt
 - Fish S2 TTS 的所有输入，加上：
 - `reference_audio`：要克隆的参考音频（推荐 10-30 秒）
 - `reference_text`（可选）：参考音频的文字稿，提高准确性
+  > **注意：** [Whisper (MTB)](https://github.com/melMass/mtb_nodes) 与较新的 `transformers` 版本**不兼容**，会抛出错误。在 MTB 维护者合并修复 PR 之前，请手动填写参考文字稿。
 
 **输出：**
 - `audio`：以克隆声音生成的语音（AUDIO）
@@ -232,6 +233,7 @@ pip install -r requirements.txt
 - `num_speakers`：说话人数量（2-10）
 - `speaker_N_audio`：说话人 N 的参考音频
 - `speaker_N_ref_text`：说话人 N 的可选文字稿
+  > **注意：** [Whisper (MTB)](https://github.com/melMass/mtb_nodes) 与较新的 `transformers` 版本**不兼容**，会抛出错误。在 MTB 维护者合并修复 PR 之前，请手动填写参考文字稿。
 - `pause_after_speaker`：说话人间隔时间（默认 0.4 秒）
 
 **文本格式：**
