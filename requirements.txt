@@ -18,7 +18,7 @@ einops>=0.7.0
 librosa>=0.10.1
 rich>=13.5.3
 ormsgpack
-pydantic==2.9.2
+pydantic>=2.9.2
 tiktoken>=0.8.0
 cachetools
 zstandard>=0.22.0
