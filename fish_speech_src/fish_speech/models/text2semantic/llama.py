@@ -731,14 +731,37 @@ class BaseTransformer(nn.Module):
                 raise ValueError(f"Unknown model type: {config.model_type}")
 
         logger.info(f"Loading model from {path}")
-        # Initialize model without passing tokenizer explicitly to __init__
-        model = model_cls(config)
-        # Attach tokenizer to model instance for inference convenience (optional, but good for user scripts)
-        model.tokenizer = tokenizer
 
         if load_weights is False:
+            # Full random init needed (training, etc.)
+            model = model_cls(config)
             logger.info("Randomly initialized model")
         else:
+            # Use meta device to avoid allocating ~16GB of throwaway random
+            # float32 params that are immediately replaced by load_state_dict.
+            # load_state_dict(assign=True) materializes real tensors from the
+            # checkpoint, so no actual data is needed at init time.
+            with torch.device("meta"):
+                model = model_cls(config)
+            # Materialize non-persistent buffers (freqs_cis, causal_mask,
+            # fast_freqs_cis) — these are tiny but must be real tensors for
+            # forward pass. persistent=False means load_state_dict won't touch
+            # them, so we recreate them on CPU here.
+            if hasattr(model, "freqs_cis") and model.freqs_cis.is_meta:
+                model.freqs_cis = precompute_freqs_cis(
+                    config.max_seq_len, config.head_dim, config.rope_base
+                )
+            if hasattr(model, "causal_mask") and model.causal_mask.is_meta:
+                model.causal_mask = torch.tril(
+                    torch.ones(config.max_seq_len, config.max_seq_len, dtype=torch.bool)
+                )
+            if hasattr(model, "fast_freqs_cis") and model.fast_freqs_cis.is_meta:
+                model.fast_freqs_cis = precompute_freqs_cis(
+                    config.num_codebooks,
+                    config.fast_head_dim,
+                    config.rope_base,
+                )
+
             if "int8" in str(Path(path)):
                 logger.info("Using int8 weight-only quantization!")
                 from tools.llama.quantize import WeightOnlyInt8QuantHandler
@@ -847,6 +870,8 @@ class BaseTransformer(nn.Module):
                 )
             else:
                 model.load_state_dict(weights, strict=False, assign=True)
+
+        model.tokenizer = tokenizer
 
         # BNB on-the-fly quantization — applied after weights are loaded on CPU,
         # before model.to(device). Actual CUDA quantization happens on first forward.
