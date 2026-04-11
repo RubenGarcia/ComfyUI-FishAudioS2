@@ -451,7 +451,7 @@ def generate(
     return seq
 
 
-def init_model(checkpoint_path, device, precision, compile=False, bnb_mode=None):
+def init_model(checkpoint_path, device, precision, compile=False, bnb_mode=None, lazy_load=False):
     model = DualARTransformer.from_pretrained(
         checkpoint_path, load_weights=True, bnb_mode=bnb_mode
     )
@@ -465,7 +465,7 @@ def init_model(checkpoint_path, device, precision, compile=False, bnb_mode=None)
     model_bytes = sum(p.numel() * p.element_size() for p in model.parameters())
     model_bytes += sum(b.numel() * b.element_size() for b in model.buffers())
 
-    if is_cuda:
+    if is_cuda and not lazy_load:
         free_mem = torch.cuda.mem_get_info()[0]
         logger.info(
             f"Model memory estimate: {model_bytes / 1e9:.2f} GB, "
@@ -478,23 +478,33 @@ def init_model(checkpoint_path, device, precision, compile=False, bnb_mode=None)
                 f"Unload other models, close other apps, or try CPU offload."
             )
 
-    if bnb_mode is not None or is_fp8:
-        if is_fp8 and is_cuda:
-            _test_fp8 = torch.zeros(1, dtype=torch.float8_e4m3fn, device="cpu").to(device)
-            if _test_fp8.dtype != torch.float8_e4m3fn:
-                del _test_fp8
-                raise RuntimeError(
-                    "float8_e4m3fn is not supported on this CUDA device / PyTorch version. "
-                    "The FP8 model weights would be upcast to float16 or float32, "
-                    "doubling/quadrupling VRAM usage. Use s2-pro-bnb-nf4 (~4-5 GB) or "
-                    "s2-pro-bnb-int8 (~8-9 GB) instead."
-                )
-            del _test_fp8
-            torch.cuda.empty_cache()
-        model = model.to(device=device)
+    if lazy_load:
+        # Keep model on CPU to reduce RAM usage. The worker thread will move
+        # it to the target device just before each generation and back to CPU
+        # afterwards, preventing the double-buffering spike (CPU + GPU copies).
+        if bnb_mode is not None or is_fp8:
+            model = model.to(device="cpu")
+        else:
+            model = model.to(device="cpu", dtype=precision)
+        logger.info(f"Model loaded in lazy mode — staying on CPU until first inference ({model_bytes / 1e9:.2f} GB)")
     else:
-        model = model.to(device=device, dtype=precision)
-    logger.info(f"Restored model from checkpoint")
+        if bnb_mode is not None or is_fp8:
+            if is_fp8 and is_cuda:
+                _test_fp8 = torch.zeros(1, dtype=torch.float8_e4m3fn, device="cpu").to(device)
+                if _test_fp8.dtype != torch.float8_e4m3fn:
+                    del _test_fp8
+                    raise RuntimeError(
+                        "float8_e4m3fn is not supported on this CUDA device / PyTorch version. "
+                        "The FP8 model weights would be upcast to float16 or float32, "
+                        "doubling/quadrupling VRAM usage. Use s2-pro-bnb-nf4 (~4-5 GB) or "
+                        "s2-pro-bnb-int8 (~8-9 GB) instead."
+                    )
+                del _test_fp8
+                torch.cuda.empty_cache()
+            model = model.to(device=device)
+        else:
+            model = model.to(device=device, dtype=precision)
+        logger.info(f"Restored model from checkpoint")
 
     if isinstance(model, DualARTransformer):
         decode_one_token = decode_one_token_ar
@@ -503,7 +513,9 @@ def init_model(checkpoint_path, device, precision, compile=False, bnb_mode=None)
     else:
         raise ValueError("Unsupported model type")
 
-    # Pre-create fixed parameter tensors to avoid runtime creation
+    # Pre-create fixed parameter tensors to avoid runtime creation.
+    # In lazy mode these go to the target device even though the model is on CPU,
+    # because they're tiny scalars used inside decode_one_token_ar on the device.
     model.fixed_temperature = torch.tensor(0.7, device=device, dtype=torch.float)
     model.fixed_top_p = torch.tensor(0.7, device=device, dtype=torch.float)
     model.fixed_repetition_penalty = torch.tensor(1.5, device=device, dtype=torch.float)
@@ -879,13 +891,15 @@ def launch_thread_safe_queue(
     precision,
     compile: bool = False,
     bnb_mode=None,
+    lazy_load: bool = False,
 ):
     input_queue = queue.Queue()
     init_event = threading.Event()
 
     def worker():
         model, decode_one_token = init_model(
-            checkpoint_path, device, precision, compile=compile, bnb_mode=bnb_mode
+            checkpoint_path, device, precision, compile=compile, bnb_mode=bnb_mode,
+            lazy_load=lazy_load,
         )
         # KV cache is NOT pre-allocated here.  It is allocated lazily in
         # generate() sized to each request's actual T_new (prompt + max_new_tokens).
@@ -905,15 +919,15 @@ def launch_thread_safe_queue(
             if "__offload__" in kwargs:
                 target_device = kwargs["__offload__"]
                 try:
-                    model.to(target_device)
-                    # fixed_* tensors are plain attributes (not registered buffers)
-                    # so model.to() does NOT move them — move manually.
-                    for attr in ("fixed_temperature", "fixed_top_p", "fixed_repetition_penalty"):
-                        if hasattr(model, attr):
-                            setattr(model, attr, getattr(model, attr).to(target_device))
-                    # _codebook_pos is a plain list — not moved by model.to()
-                    if hasattr(model, "_codebook_pos"):
-                        model._codebook_pos = [t.to(target_device) for t in model._codebook_pos]
+                    # In lazy mode, skip moving the model — it stays on CPU between
+                    # generations and the worker handles device placement itself.
+                    if not lazy_load:
+                        model.to(target_device)
+                        for attr in ("fixed_temperature", "fixed_top_p", "fixed_repetition_penalty"):
+                            if hasattr(model, attr):
+                                setattr(model, attr, getattr(model, attr).to(target_device))
+                        if hasattr(model, "_codebook_pos"):
+                            model._codebook_pos = [t.to(target_device) for t in model._codebook_pos]
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                     response_queue.put(
@@ -927,6 +941,13 @@ def launch_thread_safe_queue(
                 continue
 
             try:
+                # In lazy mode, move model to GPU right before inference and back
+                # to CPU afterwards to keep RAM usage low.
+                if lazy_load:
+                    model.to(device)
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+
                 for chunk in generate_long(
                     model=model, decode_one_token=decode_one_token, **kwargs
                 ):
@@ -944,6 +965,12 @@ def launch_thread_safe_queue(
                 # Clear cache on error
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
+            finally:
+                # Always move model back to CPU in lazy mode, even on error
+                if lazy_load:
+                    model.to("cpu")
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
 
     _thread = threading.Thread(target=worker, daemon=True)
     _thread.start()

@@ -21,6 +21,11 @@ _keep_loaded: bool = False
 # Tracks whether the engine is currently offloaded to CPU.
 _offloaded: bool = False
 
+# When True, the LLaMA model stays on CPU between generations and the worker
+# thread manages device placement itself. The cache's offload/resume functions
+# become no-ops since the model is already on CPU when idle.
+_lazy_load: bool = False
+
 # Cancel event — set by the main thread when generation is interrupted.
 # The worker thread checks this on each token and stops early.
 cancel_event: threading.Event = threading.Event()
@@ -37,11 +42,12 @@ def get_cached_engine():
 
 
 def set_cached_engine(engine: Any, key: tuple, keep_loaded: bool = False):
-    global _cached_engine, _cached_key, _keep_loaded, _offloaded
+    global _cached_engine, _cached_key, _keep_loaded, _offloaded, _lazy_load
     _cached_engine = engine
     _cached_key = key
     _keep_loaded = keep_loaded
     _offloaded = False
+    _lazy_load = getattr(engine, "_lazy_load", False)
 
 
 def is_offloaded() -> bool:
@@ -59,6 +65,10 @@ def offload_engine_to_cpu() -> None:
     When called after a cancellation the LLaMA worker may still be finishing
     its current job. We drain that job's output first so the worker becomes
     free to process our offload message.
+
+    In lazy_load mode, the LLaMA model already lives on CPU between generations
+    (the worker thread manages device placement), so we only move the decoder
+    model to CPU.
     """
     global _offloaded
 
@@ -80,35 +90,42 @@ def offload_engine_to_cpu() -> None:
     except Exception as e:
         logger.warning(f"Failed to offload decoder model: {e}")
 
-    # --- Ask the LLaMA worker thread to move the model to CPU ---
-    # The worker may still be finishing a cancelled generation — it will process
-    # our offload message as soon as it finishes that job. We use a long timeout
-    # to cover the worst case (long generation cancelled mid-way).
-    try:
-        from fish_speech.models.text2semantic.inference import GenerateRequest
-
-        offload_response: queue.Queue = queue.Queue()
-        engine.llama_queue.put(
-            GenerateRequest(
-                request={"__offload__": "cpu"},
-                response_queue=offload_response,
-            )
-        )
-        # 120s: enough for even a long generation to finish before we give up.
+    if _lazy_load:
+        # In lazy mode, the LLaMA model is already on CPU between generations.
+        # The worker thread moves it to GPU before inference and back to CPU
+        # afterwards — no need to send an offload message.
+        llama_ok = True
+        logger.info("LLaMA model skip offload — lazy load mode active (model self-manages).")
+    else:
+        # --- Ask the LLaMA worker thread to move the model to CPU ---
+        # The worker may still be finishing a cancelled generation — it will process
+        # our offload message as soon as it finishes that job. We use a long timeout
+        # to cover the worst case (long generation cancelled mid-way).
         try:
-            result = offload_response.get(timeout=120)
-            if getattr(result, "status", None) == "error":
-                logger.warning(f"LLaMA offload reported error: {result.response}")
-            else:
-                llama_ok = True
-                logger.info("LLaMA model offloaded to CPU.")
-        except queue.Empty:
-            logger.warning(
-                "LLaMA offload timed out after 120s — VRAM not freed. "
-                "The worker thread may be stuck. Restart ComfyUI to recover."
+            from fish_speech.models.text2semantic.inference import GenerateRequest
+
+            offload_response: queue.Queue = queue.Queue()
+            engine.llama_queue.put(
+                GenerateRequest(
+                    request={"__offload__": "cpu"},
+                    response_queue=offload_response,
+                )
             )
-    except Exception as e:
-        logger.warning(f"Failed to send offload request to LLaMA worker: {e}")
+            # 120s: enough for even a long generation to finish before we give up.
+            try:
+                result = offload_response.get(timeout=120)
+                if getattr(result, "status", None) == "error":
+                    logger.warning(f"LLaMA offload reported error: {result.response}")
+                else:
+                    llama_ok = True
+                    logger.info("LLaMA model offloaded to CPU.")
+            except queue.Empty:
+                logger.warning(
+                    "LLaMA offload timed out after 120s — VRAM not freed. "
+                    "The worker thread may be stuck. Restart ComfyUI to recover."
+                )
+        except Exception as e:
+            logger.warning(f"Failed to send offload request to LLaMA worker: {e}")
 
     if decoder_ok and llama_ok:
         if torch.cuda.is_available():
@@ -133,6 +150,9 @@ def offload_engine_to_cpu() -> None:
 def resume_engine_to_cuda(device: str = "cuda") -> None:
     """
     Move the engine back from CPU to the target device before the next inference.
+
+    In lazy_load mode, the LLaMA model stays on CPU and the worker thread moves
+    it to GPU itself before each generation, so we only resume the decoder.
     """
     global _offloaded
 
@@ -150,36 +170,41 @@ def resume_engine_to_cuda(device: str = "cuda") -> None:
     except Exception as e:
         logger.warning(f"Failed to resume decoder model: {e}")
 
-    # --- Ask the LLaMA worker thread to move back to device ---
-    try:
-        from fish_speech.models.text2semantic.inference import GenerateRequest
-
-        response_queue: queue.Queue = queue.Queue()
-        engine.llama_queue.put(
-            GenerateRequest(
-                request={"__offload__": device},
-                response_queue=response_queue,
-            )
-        )
+    if _lazy_load:
+        # In lazy mode, the worker thread will move the LLaMA model to GPU
+        # before its next generation — no need to send a resume message.
+        logger.info("LLaMA model skip resume — lazy load mode active (worker handles device placement).")
+    else:
+        # --- Ask the LLaMA worker thread to move back to device ---
         try:
-            result = response_queue.get(timeout=120)
-            if getattr(result, "status", None) == "error":
-                logger.warning(f"LLaMA resume reported error: {result.response}")
-            else:
-                logger.info(f"LLaMA model resumed to {device}.")
-        except queue.Empty:
-            logger.warning(
-                "LLaMA resume timed out after 120s — model may still be on CPU. "
-                "Restart ComfyUI to recover."
+            from fish_speech.models.text2semantic.inference import GenerateRequest
+
+            response_queue: queue.Queue = queue.Queue()
+            engine.llama_queue.put(
+                GenerateRequest(
+                    request={"__offload__": device},
+                    response_queue=response_queue,
+                )
             )
-    except Exception as e:
-        logger.warning(f"Failed to send resume request to LLaMA worker: {e}")
+            try:
+                result = response_queue.get(timeout=120)
+                if getattr(result, "status", None) == "error":
+                    logger.warning(f"LLaMA resume reported error: {result.response}")
+                else:
+                    logger.info(f"LLaMA model resumed to {device}.")
+            except queue.Empty:
+                logger.warning(
+                    "LLaMA resume timed out after 120s — model may still be on CPU. "
+                    "Restart ComfyUI to recover."
+                )
+        except Exception as e:
+            logger.warning(f"Failed to send resume request to LLaMA worker: {e}")
 
     _offloaded = False
 
 
 def unload_engine():
-    global _cached_engine, _cached_key, _keep_loaded, _offloaded
+    global _cached_engine, _cached_key, _keep_loaded, _offloaded, _lazy_load
     if _cached_engine is not None:
         logger.info("Unloading Fish S2 model from memory...")
         thread = None
@@ -195,6 +220,7 @@ def unload_engine():
         _cached_key = ()
         _keep_loaded = False
         _offloaded = False
+        _lazy_load = False
         # Join the worker thread so its model closure is fully released before
         # we load a new model — prevents two models sitting in RAM at once.
         if thread is not None and thread.is_alive():

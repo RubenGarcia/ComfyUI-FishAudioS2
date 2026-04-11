@@ -399,8 +399,21 @@ def load_engine(
 
     dtype = resolve_precision(precision, model_name, device_str)
 
+    # Detect ComfyUI Dynamic VRAM mode (--fast dynamic_vram).
+    # When active, keep the LLaMA model on CPU between generations to reduce
+    # RAM pressure. The worker thread moves it to GPU only during inference.
+    lazy_load = False
+    if device_str == "cuda":
+        try:
+            import comfy.memory_management
+            if getattr(comfy.memory_management, "aimdo_enabled", False):
+                lazy_load = True
+                logger.info("ComfyUI Dynamic VRAM detected — enabling lazy model loading to reduce RAM usage")
+        except ImportError:
+            pass
+
     logger.info(f"Loading Fish S2 LLaMA from: {model_path}")
-    logger.info(f"Device: {device_str}, Precision: {dtype}")
+    logger.info(f"Device: {device_str}, Precision: {dtype}, Lazy load: {lazy_load}")
     # Patch the Attention class before the worker thread runs init_model so
     # every Attention instance created during loading gets the patched forward.
     # launch_thread_safe_queue blocks until init_model finishes, so it is safe
@@ -413,6 +426,7 @@ def load_engine(
             precision=dtype,
             compile=compile_model,
             bnb_mode=bnb_mode,
+            lazy_load=lazy_load,
         )
     finally:
         _restore_attention_class(_orig_forward, _attn_cls)
@@ -436,6 +450,8 @@ def load_engine(
     # (which holds model tensors in its closure) has fully exited before we
     # load a new model — prevents both models sitting in RAM simultaneously.
     engine._llama_thread = llama_thread
+    # Store lazy_load flag so the cache system can adjust offload/resume behavior.
+    engine._lazy_load = lazy_load
 
     logger.info(f"Fish S2 engine ready (attention={attention}).")
     return engine
