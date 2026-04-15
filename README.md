@@ -45,15 +45,15 @@ This ComfyUI wrapper provides native node-based integration with:
 
 ## ✨ Features
 
-- ** Zero-Shot Voice Cloning** – Clone any voice from 10-30 seconds of reference audio
-- ** 1500+ Emotive Tags** – Fine-grained control with `[laugh]`, `[whisper]`, `[excited]`, `[sad]`, etc.
-- ** 83 Languages** – Full multilingual support without phoneme preprocessing
-- ** Multi-Speaker TTS** – Generate conversations with multiple cloned voices in one pass
-- ** Per-Speaker Audio Isolation** – Separate audio tracks for each speaker (lip sync workflows)
-- ** Native ComfyUI Integration** – AUDIO noodle inputs, progress bars, interruption support
-- ** Optimized Performance** – Support for bf16/fp16/fp32 dtypes, SDPA, FlashAttention, SageAttention
-- ** Smart Auto-Download** – Model weights auto-downloaded from HuggingFace on first use
-- ** Smart Caching** – Optional model caching with automatic unloading on config change
+- **Zero-Shot Voice Cloning** – Clone any voice from 10-30 seconds of reference audio
+- **1500+ Emotive Tags** – Fine-grained control with `[laugh]`, `[whisper]`, `[excited]`, `[sad]`, etc.
+- **83 Languages** – Full multilingual support without phoneme preprocessing
+- **Multi-Speaker TTS** – Generate conversations with multiple cloned voices in one pass
+- **Per-Speaker Audio Isolation** – Separate audio tracks for each speaker (lip sync workflows)
+- **Native ComfyUI Integration** – AUDIO noodle inputs, progress bars, interruption support
+- **Optimized Performance** – Support for bf16/fp16/fp32 dtypes, SDPA, FlashAttention, SageAttention
+- **Smart Auto-Download** – Model weights auto-downloaded from HuggingFace on first use
+- **Smart Caching** – Optional model caching with automatic unloading on config change
 
 ---
 
